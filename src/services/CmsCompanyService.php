@@ -23,10 +23,20 @@ class CmsCompanyService extends AbstractCmsService
     public function companyList(array $arguments): array
     {
         $query = CmsCompany::find()->forManager(\Yii::$app->user->identity);
-        $this->applyFilters($query, CmsCompany::class, $arguments, ['cms_company_status_id', 'company_type']);
-        if (!empty($arguments['q'])) { $query->search((string)$arguments['q']); }
-        foreach ((array)($arguments['named_filters'] ?? []) as $name) { $this->applyNamedFilter($query, $name); }
-        return $this->page($query->orderBy([CmsCompany::tableName().'.id' => SORT_DESC]), $arguments, [$this, 'companyData']);
+        $this->applyCompanyFilters($query, $arguments);
+
+        $sorts = [
+            'id' => 'id',
+            'created_at' => 'created_at',
+            'name' => 'name',
+            'status' => 'cms_company_status_id',
+            'type' => 'company_type',
+        ];
+        $sort = (string)($arguments['sort_by'] ?? 'id');
+        if (!isset($sorts[$sort])) { throw new Exception('Unsupported company sort.'); }
+        $direction = strtolower((string)($arguments['sort_direction'] ?? 'desc')) === 'asc' ? SORT_ASC : SORT_DESC;
+
+        return $this->page($query->orderBy([CmsCompany::tableName().'.'.$sorts[$sort] => $direction]), $arguments, [$this, 'companyData']);
     }
 
     public function companyGet(array $arguments): array
@@ -51,8 +61,40 @@ class CmsCompanyService extends AbstractCmsService
     public function companyUpdate(array $arguments): array
     {
         $company = $this->findAllowed(CmsCompany::class, $arguments);
-        $this->applyWritable($company, $arguments, $this->companyWritable);
-        return $this->companyData($this->save($company, 'Company validation failed'), true);
+        $source = array_merge($arguments, (array)($arguments['attributes'] ?? []));
+        $transaction = \Yii::$app->db->beginTransaction();
+        try {
+            $this->applyWritable($company, $arguments, $this->companyWritable);
+            $this->save($company, 'Company validation failed');
+
+            if (array_key_exists('category_ids', $source)) {
+                $this->replaceCompanyLinks(
+                    CmsCompany2category::class,
+                    'cms_company_category_id',
+                    CmsCompanyCategory::class,
+                    (int)$company->id,
+                    $source['category_ids'],
+                    'category'
+                );
+            }
+            if (array_key_exists('manager_ids', $source)) {
+                $this->replaceCompanyLinks(
+                    CmsCompany2manager::class,
+                    'cms_user_id',
+                    \Yii::$app->user->identityClass,
+                    (int)$company->id,
+                    $source['manager_ids'],
+                    'manager'
+                );
+            }
+
+            $result = $this->companyGet(['id' => (int)$company->id]);
+            $transaction->commit();
+            return $result;
+        } catch (\Throwable $e) {
+            $transaction->rollBack();
+            throw $e;
+        }
     }
 
     public function duplicateCheck(array $arguments): array
@@ -111,10 +153,10 @@ class CmsCompanyService extends AbstractCmsService
         $groups = ['status' => 'cms_company_status_id', 'type' => 'company_type'];
         if (!isset($groups[$group])) { throw new Exception('group_by must be status or type.'); }
         $query = CmsCompany::find()->forManager(\Yii::$app->user->identity);
-        $this->applyFilters($query, CmsCompany::class, $arguments, ['cms_company_status_id', 'company_type']);
-        foreach ((array)($arguments['named_filters'] ?? []) as $name) { $this->applyNamedFilter($query, $name); }
+        $this->applyCompanyFilters($query, $arguments);
         $field = CmsCompany::tableName().'.'.$groups[$group];
-        return ['group_by' => $group, 'items' => $query->select(['group_value' => $field, 'count' => new Expression('COUNT(*)')])->groupBy($field)->asArray()->all()];
+        $count = 'COUNT(DISTINCT '.CmsCompany::tableName().'.id)';
+        return ['group_by' => $group, 'items' => $query->select(['group_value' => $field, 'count' => new Expression($count)])->groupBy($field)->asArray()->all()];
     }
 
     public function statusList(array $arguments): array { return $this->page(CmsCompanyStatus::find()->orderBy(['id' => SORT_ASC]), $arguments); }
@@ -166,6 +208,48 @@ class CmsCompanyService extends AbstractCmsService
     {
         $model = $this->find($class, $arguments); $this->applyWritable($model, $arguments, $model->safeAttributes());
         return $this->recordData($this->save($model, 'Reference validation failed'));
+    }
+
+    protected function applyCompanyFilters($query, array $arguments): void
+    {
+        $filters = array_merge((array)($arguments['filters'] ?? []), $arguments);
+        $this->applyFilters($query, CmsCompany::class, $arguments, ['id', 'cms_company_status_id', 'company_type', 'created_by']);
+        if (!empty($arguments['q'])) { $query->search((string)$arguments['q']); }
+        $this->applyDateRange($query, CmsCompany::class, $arguments, 'created_at');
+
+        if (isset($filters['cms_company_category_id']) && $filters['cms_company_category_id'] !== '' && $filters['cms_company_category_id'] !== null) {
+            $categoryCompanyIds = CmsCompany2category::find()
+                ->select('cms_company_id')
+                ->andWhere(['cms_company_category_id' => $filters['cms_company_category_id']]);
+            $query->andWhere([CmsCompany::tableName().'.id' => $categoryCompanyIds]);
+        }
+        if (isset($filters['manager_id']) && $filters['manager_id'] !== '' && $filters['manager_id'] !== null) {
+            $managerCompanyIds = CmsCompany2manager::find()
+                ->select('cms_company_id')
+                ->andWhere(['cms_user_id' => $filters['manager_id']]);
+            $query->andWhere([CmsCompany::tableName().'.id' => $managerCompanyIds]);
+        }
+
+        foreach ((array)($arguments['named_filters'] ?? []) as $name) { $this->applyNamedFilter($query, $name); }
+    }
+
+    protected function replaceCompanyLinks(string $linkClass, string $referenceAttribute, string $referenceClass, int $companyId, $values, string $label): void
+    {
+        if (!is_array($values)) { throw new Exception($label.'_ids must be an array.'); }
+        $ids = array_values(array_unique(array_filter(array_map('intval', $values), function (int $id) { return $id > 0; })));
+        if (count($ids) !== count($values)) { throw new Exception($label.'_ids must contain unique positive integers.'); }
+
+        if ($ids) {
+            $existingIds = array_map('intval', $referenceClass::find()->select('id')->andWhere(['id' => $ids])->column());
+            $missingIds = array_values(array_diff($ids, $existingIds));
+            if ($missingIds) { throw new Exception('Unknown '.$label.'_ids: '.implode(', ', $missingIds).'.'); }
+        }
+
+        $linkClass::deleteAll(['cms_company_id' => $companyId]);
+        foreach ($ids as $id) {
+            $link = new $linkClass(['cms_company_id' => $companyId, $referenceAttribute => $id]);
+            $this->save($link, 'Company '.$label.' link validation failed');
+        }
     }
 
     protected function applyNamedFilter($query, string $name): void

@@ -14,7 +14,7 @@ class CmsUserService extends AbstractCmsService
     protected function users(array $a, bool $workers): array
     {
         $q = CmsUser::find(); if (method_exists($q, 'forManager')) { $q->forManager(\Yii::$app->user->identity); } if ($workers && method_exists($q, 'isWorker')) { $q->isWorker(); }
-        $this->applyFilters($q, CmsUser::class, $a, ['id', 'is_active', 'is_worker']); $this->applySearch($q, CmsUser::class, $a, ['username', 'first_name', 'last_name', 'company_name']);
+        $this->applyFilters($q, CmsUser::class, $a, ['id', 'is_active', 'is_worker']); $this->applySearch($q, CmsUser::class, $a, ['username', 'first_name', 'last_name', 'patronymic', 'company_name']);
         return $this->page($q->orderBy(['id' => SORT_DESC]), $a, [$this, 'userData']);
     }
     protected function mutate(CmsUser $user, array $a): array

@@ -183,9 +183,29 @@ All mutations run under the CMS identity established from the OAuth access
 token. Never accept `created_by` or `updated_by` from MCP arguments. A task may
 name a different `executor_id`, but its creator remains the OAuth user.
 
+Bearer authentication is stateless: establish the CMS identity with
+`Yii::$app->user->setIdentity()` and never call `login()`, start a PHP session
+or regenerate a session id from the MCP controller.
+
+For task reads, `q` searches the task name and description only. Resolve a
+worker first and use `created_by` for the author, `executor_id` for the
+executor, and combine either with named filters such as `mine`, `active` and
+`overdue`. Task list responses include shallow user/project/company references;
+never serialize authentication fields from related `cms_user` records.
+
 For ambiguous status, category, deal type, executor or duplicate choices,
 return available reference records and let the client ask the user instead of
 guessing.
+
+For company reads, use `cms_company_status_id`, `company_type`,
+`cms_company_category_id`, `manager_id`, `created_by` and the `created_at`
+date range instead of downloading all companies. These filters accept a single
+identifier/value or an array where the schema allows it. Company list sorting
+supports `id`, `created_at`, `name`, `status` and `type`; named filters cover
+tasks, the current user's tasks, overdue deals, unpaid bills and overdue bills.
+`cms_company_update` replaces category and manager junction-table relations
+when `category_ids` or `manager_ids` is present; an empty array explicitly
+clears that relation, while an omitted field leaves it unchanged.
 
 ## Content creation workflow
 

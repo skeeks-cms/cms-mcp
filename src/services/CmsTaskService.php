@@ -13,8 +13,8 @@ class CmsTaskService extends AbstractCmsService
 
     public function taskList(array $arguments): array
     {
-        $query = CmsTask::find()->forManager(\Yii::$app->user->identity);
-        $this->applyFilters($query, CmsTask::class, $arguments, ['status', 'executor_id', 'cms_project_id', 'cms_company_id', 'cms_user_id', 'parent_cms_task_id']);
+        $query = CmsTask::find()->forManager(\Yii::$app->user->identity)->with(['createdBy', 'updatedBy', 'executor', 'cmsProject', 'cmsCompany']);
+        $this->applyFilters($query, CmsTask::class, $arguments, ['status', 'executor_id', 'cms_project_id', 'cms_company_id', 'cms_user_id', 'parent_cms_task_id', 'created_by', 'updated_by']);
         $this->applySearch($query, CmsTask::class, $arguments, ['name', 'description']);
         $this->applyDateRange($query, CmsTask::class, $arguments, 'plan_start_at');
         foreach ((array)($arguments['named_filters'] ?? []) as $name) { $this->applyNamedFilter($query, $name); }
@@ -79,7 +79,7 @@ class CmsTaskService extends AbstractCmsService
         $group = (string)($arguments['group_by'] ?? 'status'); $metric = (string)($arguments['metric'] ?? 'count');
         if (!isset($groups[$group]) || !isset($metrics[$metric])) { throw new Exception('Unsupported task statistics slice.'); }
         $query = CmsTask::find()->forManager(\Yii::$app->user->identity);
-        $this->applyFilters($query, CmsTask::class, $arguments, ['status', 'executor_id', 'cms_project_id', 'cms_company_id', 'cms_user_id']);
+        $this->applyFilters($query, CmsTask::class, $arguments, ['status', 'executor_id', 'cms_project_id', 'cms_company_id', 'cms_user_id', 'created_by', 'updated_by']);
         $this->applyDateRange($query, CmsTask::class, $arguments, 'created_at');
         foreach ((array)($arguments['named_filters'] ?? []) as $name) { $this->applyNamedFilter($query, $name); }
         $field = CmsTask::tableName().'.'.$groups[$group];
@@ -88,8 +88,28 @@ class CmsTaskService extends AbstractCmsService
 
     public function taskData(CmsTask $task, bool $details = false): array
     {
-        $extra = ['status_text' => function (CmsTask $model) { return $model->statusAsText; }, 'plan_duration_seconds' => function (CmsTask $model) { return $model->planDurationSeconds; }];
-        return $this->withRelations($task, $details ? ['executor', 'cmsProject', 'cmsCompany', 'cmsUser', 'files'] : [], $extra);
+        $extra = [
+            'status_text' => function (CmsTask $model) { return $model->statusAsText; },
+            'plan_duration_seconds' => function (CmsTask $model) { return $model->planDurationSeconds; },
+            'created_by_user' => function (CmsTask $model) { return $this->userReference($model->createdBy); },
+            'updated_by_user' => function (CmsTask $model) { return $this->userReference($model->updatedBy); },
+            'executor_user' => function (CmsTask $model) { return $this->userReference($model->executor); },
+            'cms_project_ref' => function (CmsTask $model) { return $this->namedReference($model->cmsProject); },
+            'cms_company_ref' => function (CmsTask $model) { return $this->namedReference($model->cmsCompany); },
+        ];
+        $data = $this->withRelations($task, $details ? ['cmsProject', 'cmsCompany', 'files'] : [], $extra);
+        if ($details) { $data['cms_user_ref'] = $this->userReference($task->cmsUser); }
+        return $data;
+    }
+
+    protected function userReference($user): ?array
+    {
+        return $user ? ['id' => (int)$user->id, 'display_name' => (string)$user->displayName] : null;
+    }
+
+    protected function namedReference($model): ?array
+    {
+        return $model ? ['id' => (int)$model->id, 'name' => (string)$model->name] : null;
     }
     protected function applyNamedFilter($query, string $name): void
     {

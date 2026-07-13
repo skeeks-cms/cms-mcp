@@ -119,7 +119,10 @@ class McpController extends Controller
             $this->challenge();
             throw $e;
         }
-        Yii::$app->user->login($token->cmsUser, 0);
+        // Bearer authentication is stateless. Persisting the identity through
+        // login() starts a PHP session and regenerates its id on every MCP call,
+        // which can serialize concurrent requests behind a session lock.
+        Yii::$app->user->setIdentity($token->cmsUser);
         return $token;
     }
 
