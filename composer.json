@@ -1,0 +1,22 @@
+{
+    "name": "skeeks/cms-mcp",
+    "description": "Extensible Model Context Protocol server for SkeekS CMS",
+    "type": "yii2-extension",
+    "license": "BSD-3-Clause",
+    "require": {
+        "php": "^7.4|^8.0",
+        "skeeks/cms": "^6.4 || dev-master",
+        "skeeks/cms-oauth2-server": "^1.0 || dev-main || dev-master"
+    },
+    "autoload": {
+        "psr-4": {
+            "skeeks\\cms\\mcp\\": "src/"
+        }
+    },
+    "extra": {
+        "config-plugin": {
+            "web": ["src/config/common.php", "src/config/web.php"],
+            "console": ["src/config/common.php"]
+        }
+    }
+}
