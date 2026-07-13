@@ -31,9 +31,5 @@ OAuth scopes are checked per tool. CMS RBAC is checked as well; by default the
 component requires `CmsManager::PERMISSION_ADMIN_ACCESS`. A project may map a
 tool to a narrower permission through `cmsMcp.toolPermissions`.
 
-Documentation:
-
-- `AGENTS.md` — mandatory engineering rules for AI agents.
-- `docs/architecture.md` — package boundaries and request flow.
-- `docs/tools.md` — current tool groups and content workflow.
-- `docs/project-extension.md` — project providers and service replacement.
+See `AGENTS.md` for architecture, the current tool surface, project extension
+rules and mandatory instructions for AI agents.
