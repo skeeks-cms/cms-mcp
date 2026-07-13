@@ -6,7 +6,6 @@ use skeeks\cms\mcp\services\CmsComponentSettingsService;
 use skeeks\cms\mcp\services\CmsContentElementService;
 use skeeks\cms\mcp\services\CmsSiteService;
 use skeeks\cms\mcp\services\CmsStorageFileService;
-use skeeks\cms\mcp\services\CmsTaskCreateService;
 use skeeks\cms\mcp\services\CmsTreeService;
 use yii\base\Component;
 
@@ -17,14 +16,12 @@ class CoreToolProvider extends Component implements McpToolProviderInterface
     public $treeServiceConfig = CmsTreeService::class;
     public $contentServiceConfig = CmsContentElementService::class;
     public $storageServiceConfig = CmsStorageFileService::class;
-    public $taskServiceConfig = CmsTaskCreateService::class;
 
     private $_siteService;
     private $_settingsService;
     private $_treeService;
     private $_contentService;
     private $_storageService;
-    private $_taskService;
 
     public function getTools(): array
     {
@@ -33,7 +30,6 @@ class CoreToolProvider extends Component implements McpToolProviderInterface
         $tree = $this->treeService();
         $content = $this->contentService();
         $storage = $this->storageService();
-        $task = $this->taskService();
 
         return [
             $this->tool('cms_site_list', 'Список сайтов CMS.', 'cms.site.read', [$site, 'siteList'], $this->listSchema()),
@@ -73,7 +69,6 @@ class CoreToolProvider extends Component implements McpToolProviderInterface
             $this->tool('cms_storage_file_get', 'Карточка файла и публичный URL.', 'cms.storage.read', [$storage, 'fileGet'], $this->idSchema()),
             $this->tool('cms_storage_file_upload', 'Загрузка файла из multipart, URL или base64.', 'cms.storage.write', [$storage, 'fileUpload'], $this->objectSchema(['source_url' => ['type' => 'string'], 'base64' => ['type' => 'string'], 'filename' => ['type' => 'string'], 'cms_site_id' => ['type' => 'integer'], 'cluster_id' => ['type' => 'string']])),
 
-            $this->tool('cms_task_create', 'Создание задачи CRM.', 'cms.task.write', [$task, 'taskCreate'], $this->objectSchema(['title' => ['type' => 'string'], 'description' => ['type' => 'string'], 'executor_id' => ['type' => 'integer'], 'parent_cms_task_id' => ['type' => 'integer'], 'cms_project_id' => ['type' => 'integer'], 'cms_company_id' => ['type' => 'integer'], 'duration_minutes' => ['type' => 'integer']], ['title'])),
         ];
     }
 
@@ -170,11 +165,4 @@ class CoreToolProvider extends Component implements McpToolProviderInterface
         return $this->_storageService;
     }
 
-    protected function taskService(): CmsTaskCreateService
-    {
-        if ($this->_taskService === null) {
-            $this->_taskService = \Yii::createObject($this->taskServiceConfig);
-        }
-        return $this->_taskService;
-    }
 }
