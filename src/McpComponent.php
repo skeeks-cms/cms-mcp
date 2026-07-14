@@ -14,7 +14,7 @@ use yii\web\ForbiddenHttpException;
 class McpComponent extends Component
 {
     public $serverName = 'skeeks-cms';
-    public $serverVersion = '1.1.0';
+    public $serverVersion = '1.2.0';
     public $apiVersion = '1';
     public $protocolVersion = '2024-11-05';
     public $oauth2Component = 'oauth2Server';

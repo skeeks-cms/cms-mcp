@@ -46,6 +46,20 @@ the user's default browser and never prints tokens or client secrets. The REST
 client rotates refresh tokens and caches the authorized tool catalog by ETag
 and `tools_revision`.
 
+For common AI workflows, call the intent-oriented fast client directly. It
+uses `.codex/skeeks.json` from the current project when present and does not
+download the tool catalog before known operations:
+
+```powershell
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-api.ps1' -Operation company.search -Query 'SkeekS'
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-api.ps1' -Operation task.mine.active -Limit 20
+```
+
+If a direct call fails because a tool or argument changed, the client reads
+only that tool schema as a fallback. `skeeks-rest.ps1` remains the lower-level
+client for all other tools. List operations are compact by default; pass
+`-Full` only when the complete records are required.
+
 Project-specific tools are registered in application configuration:
 
 ```php

@@ -179,6 +179,7 @@ class RestApiController extends BearerAuthenticatedController
 
     protected function execute(string $name, array $arguments, $accessToken): array
     {
+        $this->applyExecutionHeaders($accessToken);
         try {
             return [
                 'success' => true,
@@ -220,6 +221,17 @@ class RestApiController extends BearerAuthenticatedController
         $headers->set('X-Skeeks-Tools-Revision', $revision);
 
         return $etag;
+    }
+
+    protected function applyExecutionHeaders($accessToken): void
+    {
+        $catalog = $this->mcp()->getAuthorizedToolsMetadata($accessToken);
+        $headers = Yii::$app->response->headers;
+        $headers->set('Vary', 'Authorization');
+        $headers->set('X-Skeeks-Api-Version', $catalog['api_version']);
+        $headers->set('X-Skeeks-Server-Version', $catalog['server_version']);
+        $headers->set('X-Skeeks-Tools-Revision', $catalog['tools_revision']);
+        $headers->set('X-Skeeks-Tools-Count', (string)$catalog['tools_count']);
     }
 
     protected function isNotModified(string $etag): bool

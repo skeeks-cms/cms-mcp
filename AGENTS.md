@@ -114,6 +114,16 @@ Agents should reuse a known cached schema instead of repeatedly reading the
 entire catalog. Fetch only a family or one schema when the requested method is
 not in cache.
 
+For stable core operations, use the direct-first path. The canonical
+`scripts/skeeks-api.ps1` maps compact operations such as `company.search`,
+`task.mine.active` and `site.context` directly to their existing tools. Do not
+read `/tools`, inspect the credential store or call context before these known
+operations. Fetch `tools/{name}` only after the direct call reports an unknown
+tool or invalid arguments. Every REST execution response exposes
+`X-Skeeks-Api-Version`, `X-Skeeks-Server-Version` and the authorized
+`X-Skeeks-Tools-Revision`, so a client can detect catalog changes without a
+preflight request.
+
 The canonical Windows OAuth/REST client is
 `scripts/skeeks-rest.ps1` in this package. Keep MCP/REST transport helpers here,
 not in `skeeks/cms`; the CMS skill may document and invoke this installed file.

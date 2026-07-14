@@ -36,6 +36,14 @@ function Read-Utf8File([string]$Path) {
     return [IO.File]::ReadAllText($Path, $Utf8NoBom)
 }
 
+function ConvertFrom-JsonDocument([string]$Value) {
+    Add-Type -AssemblyName System.Web.Extensions
+    $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+    $serializer.MaxJsonLength = [int]::MaxValue
+    $serializer.RecursionLimit = 200
+    return ,$serializer.DeserializeObject($Value)
+}
+
 function Convert-HexToBytes([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value) -or ($Value.Length % 2) -ne 0 -or $Value -notmatch '^[0-9a-fA-F]+$') {
         throw 'The OAuth credential store contains an invalid DPAPI value.'
@@ -303,6 +311,7 @@ $headers = @{
 $cache = $null
 $cacheStatus = if ($Action -eq 'tools') { 'miss' } else { 'not_used' }
 $skipRequest = $false
+$responseHeaders = $null
 if ($Action -eq 'tools' -and (Test-Path -LiteralPath $CachePath)) {
     try {
         $cache = Read-Utf8File $CachePath | ConvertFrom-Json
@@ -330,11 +339,14 @@ try {
     if ($skipRequest) {
         # The authorized catalog is fresh in the local, credential-specific cache.
     } elseif ($method -eq 'POST') {
-        $response = Invoke-RestMethod -Method Post -Uri $requestUri -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body
+        $webResponse = Invoke-WebRequest -UseBasicParsing -Method Post -Uri $requestUri -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body
+        $responseHeaders = $webResponse.Headers
+        $response = ConvertFrom-JsonDocument $webResponse.Content
     } elseif ($Action -eq 'tools') {
         try {
             $webResponse = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $requestUri -Headers $headers
-            $response = $webResponse.Content | ConvertFrom-Json
+            $responseHeaders = $webResponse.Headers
+            $response = ConvertFrom-JsonDocument $webResponse.Content
             $cacheStatus = 'updated'
             $etag = [string]$webResponse.Headers['ETag']
             $cache = [pscustomobject]@{
@@ -386,11 +398,35 @@ if ($Action -eq 'tools' -and $ToolPattern) {
     $response.returned_count = @($response.tools).Count
 }
 
+$apiVersion = if ($responseHeaders -and $responseHeaders['X-Skeeks-Api-Version']) {
+    [string]$responseHeaders['X-Skeeks-Api-Version']
+} elseif ($response.api_version) {
+    [string]$response.api_version
+} elseif ($cache) {
+    [string]$cache.api_version
+} else { $null }
+$serverVersion = if ($responseHeaders -and $responseHeaders['X-Skeeks-Server-Version']) {
+    [string]$responseHeaders['X-Skeeks-Server-Version']
+} elseif ($response.server_version) {
+    [string]$response.server_version
+} elseif ($cache) {
+    [string]$cache.server_version
+} else { $null }
+$toolsRevision = if ($responseHeaders -and $responseHeaders['X-Skeeks-Tools-Revision']) {
+    [string]$responseHeaders['X-Skeeks-Tools-Revision']
+} elseif ($response.tools_revision) {
+    [string]$response.tools_revision
+} elseif ($cache) {
+    [string]$cache.tools_revision
+} else { $null }
+
 [pscustomobject]@{
     action = $Action
     tool = if ($Action -eq 'execute' -or $Action -eq 'tool-schema') { $ToolName } else { $null }
     duration_ms = $stopwatch.ElapsedMilliseconds
     cache_status = $cacheStatus
-    tools_revision = if ($Action -eq 'tools') { [string]$response.tools_revision } else { $null }
+    api_version = $apiVersion
+    server_version = $serverVersion
+    tools_revision = $toolsRevision
     response = $response
 } | ConvertTo-Json -Depth 100
