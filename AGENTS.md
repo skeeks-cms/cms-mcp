@@ -206,6 +206,11 @@ tasks, the current user's tasks, overdue deals, unpaid bills and overdue bills.
 `cms_company_update` replaces category and manager junction-table relations
 when `category_ids` or `manager_ids` is present; an empty array explicitly
 clears that relation, while an omitted field leaves it unchanged.
+For category migrations, prefer `cms_company_category_replace`: it changes
+only `from_category_id` to `to_category_id`, preserves every other category,
+accepts at most 100 authorized companies and returns compact before/after ID
+arrays. Company user and manager relations must always be serialized as safe
+references, never as raw `cms_user` records.
 
 ## Content creation workflow
 

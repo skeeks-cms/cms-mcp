@@ -88,7 +88,7 @@ class CmsCompanyService extends AbstractCmsService
                 );
             }
 
-            $result = $this->companyGet(['id' => (int)$company->id]);
+            $result = $this->companyMutationData((int)$company->id);
             $transaction->commit();
             return $result;
         } catch (\Throwable $e) {
@@ -115,6 +115,78 @@ class CmsCompanyService extends AbstractCmsService
         }
         foreach ($matches as &$match) { $match['matched_by'] = array_values(array_unique($match['matched_by'])); }
         return ['has_duplicates' => (bool)$matches, 'matches' => array_values($matches), 'checked' => $values];
+    }
+
+    public function companyCategoryReplace(array $arguments): array
+    {
+        $companyIds = array_map('intval', (array)($arguments['company_ids'] ?? []));
+        if (!empty($arguments['company_id'])) { $companyIds[] = (int)$arguments['company_id']; }
+        $companyIds = array_values(array_unique(array_filter($companyIds, function (int $id) { return $id > 0; })));
+        if (!$companyIds) { throw new Exception('company_id or company_ids is required.'); }
+        if (count($companyIds) > 100) { throw new Exception('A maximum of 100 companies can be changed in one call.'); }
+
+        $fromCategoryId = (int)($arguments['from_category_id'] ?? 0);
+        $toCategoryId = (int)($arguments['to_category_id'] ?? 0);
+        if (!$fromCategoryId || !$toCategoryId) { throw new Exception('from_category_id and to_category_id are required.'); }
+        if ($fromCategoryId === $toCategoryId) { throw new Exception('from_category_id and to_category_id must be different.'); }
+
+        $categoryIds = array_map('intval', CmsCompanyCategory::find()->select('id')->andWhere(['id' => [$fromCategoryId, $toCategoryId]])->column());
+        $missingCategoryIds = array_values(array_diff([$fromCategoryId, $toCategoryId], $categoryIds));
+        if ($missingCategoryIds) { throw new Exception('Unknown category ids: '.implode(', ', $missingCategoryIds).'.'); }
+
+        $allowedCompanyIds = array_map('intval', CmsCompany::find()
+            ->forManager(\Yii::$app->user->identity)
+            ->select(CmsCompany::tableName().'.id')
+            ->andWhere([CmsCompany::tableName().'.id' => $companyIds])
+            ->distinct()
+            ->column());
+        $unavailableCompanyIds = array_values(array_diff($companyIds, $allowedCompanyIds));
+        if ($unavailableCompanyIds) { throw new Exception('Companies not found or unavailable: '.implode(', ', $unavailableCompanyIds).'.'); }
+
+        $categoryMap = array_fill_keys($companyIds, []);
+        $links = CmsCompany2category::find()
+            ->select(['cms_company_id', 'cms_company_category_id'])
+            ->andWhere(['cms_company_id' => $companyIds])
+            ->asArray()
+            ->all();
+        foreach ($links as $link) {
+            $categoryMap[(int)$link['cms_company_id']][] = (int)$link['cms_company_category_id'];
+        }
+
+        $transaction = \Yii::$app->db->beginTransaction();
+        try {
+            $items = [];
+            foreach ($companyIds as $companyId) {
+                $oldCategoryIds = array_values(array_unique($categoryMap[$companyId]));
+                sort($oldCategoryIds, SORT_NUMERIC);
+                $newCategoryIds = $oldCategoryIds;
+                $changed = in_array($fromCategoryId, $oldCategoryIds, true);
+
+                if ($changed) {
+                    if (in_array($toCategoryId, $oldCategoryIds, true)) {
+                        CmsCompany2category::deleteAll(['cms_company_id' => $companyId, 'cms_company_category_id' => $fromCategoryId]);
+                    } else {
+                        CmsCompany2category::updateAll(
+                            ['cms_company_category_id' => $toCategoryId],
+                            ['cms_company_id' => $companyId, 'cms_company_category_id' => $fromCategoryId]
+                        );
+                    }
+                    $newCategoryIds = array_values(array_unique(array_merge(array_diff($oldCategoryIds, [$fromCategoryId]), [$toCategoryId])));
+                    sort($newCategoryIds, SORT_NUMERIC);
+                }
+
+                $items[] = [
+                    'id' => $companyId,
+                    'old_category_ids' => $oldCategoryIds,
+                    'new_category_ids' => $newCategoryIds,
+                ];
+            }
+            $transaction->commit();
+            return ['items' => $items];
+        } catch (\Throwable $e) {
+            $transaction->rollBack();
+            throw $e;
+        }
     }
 
     public function companyCreateFull(array $arguments): array
@@ -186,7 +258,25 @@ class CmsCompanyService extends AbstractCmsService
 
     public function companyData(CmsCompany $company, bool $details = false): array
     {
-        return $details ? $this->withRelations($company, ['status', 'categories', 'managers', 'users', 'phones', 'emails', 'addresses', 'links', 'contractors']) : $this->recordData($company);
+        if (!$details) { return $this->recordData($company); }
+        $data = $this->withRelations($company, ['status', 'categories', 'phones', 'emails', 'addresses', 'links', 'contractors']);
+        $data['managers'] = array_map([$this, 'userReference'], $company->managers);
+        $data['users'] = array_map([$this, 'userReference'], $company->users);
+        return $data;
+    }
+
+    protected function companyMutationData(int $companyId): array
+    {
+        $categoryIds = array_map('intval', CmsCompany2category::find()->select('cms_company_category_id')->andWhere(['cms_company_id' => $companyId])->column());
+        $managerIds = array_map('intval', CmsCompany2manager::find()->select('cms_user_id')->andWhere(['cms_company_id' => $companyId])->column());
+        sort($categoryIds, SORT_NUMERIC);
+        sort($managerIds, SORT_NUMERIC);
+        return ['id' => $companyId, 'updated' => true, 'category_ids' => $categoryIds, 'manager_ids' => $managerIds];
+    }
+
+    protected function userReference($user): ?array
+    {
+        return $user ? ['id' => (int)$user->id, 'display_name' => (string)$user->displayName] : null;
     }
 
     protected function saveCompanyChild(string $class, int $companyId, array $attributes): void
