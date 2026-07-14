@@ -30,6 +30,11 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $OutputEncoding = [Console]::OutputEncoding
+$Utf8NoBom = New-Object System.Text.UTF8Encoding($false, $true)
+
+function Read-Utf8File([string]$Path) {
+    return [IO.File]::ReadAllText($Path, $Utf8NoBom)
+}
 
 function Convert-HexToBytes([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value) -or ($Value.Length % 2) -ne 0 -or $Value -notmatch '^[0-9a-fA-F]+$') {
@@ -108,17 +113,22 @@ function Assert-HttpsUri([string]$Value, [string]$Name) {
 function Save-CredentialStore($Store, [string]$Path) {
     $directory = Split-Path -Parent $Path
     $temporary = Join-Path $directory ('.' + [IO.Path]::GetFileName($Path) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $backup = $null
     $encoding = New-Object System.Text.UTF8Encoding($false)
     [IO.File]::WriteAllText($temporary, ($Store | ConvertTo-Json -Depth 10), $encoding)
     try {
         if (Test-Path -LiteralPath $Path) {
-            [IO.File]::Replace($temporary, $Path, $null)
+            $backup = Join-Path $directory ('.' + [IO.Path]::GetFileName($Path) + '.' + [Guid]::NewGuid().ToString('N') + '.bak')
+            [IO.File]::Replace($temporary, $Path, $backup)
         } else {
             [IO.File]::Move($temporary, $Path)
         }
     } finally {
         if (Test-Path -LiteralPath $temporary) {
             Remove-Item -LiteralPath $temporary -Force
+        }
+        if ($backup -and (Test-Path -LiteralPath $backup)) {
+            Remove-Item -LiteralPath $backup -Force
         }
     }
 }
@@ -129,17 +139,22 @@ function Save-JsonCache($Value, [string]$Path) {
         New-Item -ItemType Directory -Path $directory -Force | Out-Null
     }
     $temporary = Join-Path $directory ('.' + [IO.Path]::GetFileName($Path) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $backup = $null
     $encoding = New-Object System.Text.UTF8Encoding($false)
     [IO.File]::WriteAllText($temporary, ($Value | ConvertTo-Json -Depth 100), $encoding)
     try {
         if (Test-Path -LiteralPath $Path) {
-            [IO.File]::Replace($temporary, $Path, $null)
+            $backup = Join-Path $directory ('.' + [IO.Path]::GetFileName($Path) + '.' + [Guid]::NewGuid().ToString('N') + '.bak')
+            [IO.File]::Replace($temporary, $Path, $backup)
         } else {
             [IO.File]::Move($temporary, $Path)
         }
     } finally {
         if (Test-Path -LiteralPath $temporary) {
             Remove-Item -LiteralPath $temporary -Force
+        }
+        if ($backup -and (Test-Path -LiteralPath $backup)) {
+            Remove-Item -LiteralPath $backup -Force
         }
     }
 }
@@ -173,7 +188,7 @@ try {
         throw 'Timed out waiting for another OAuth refresh to finish.'
     }
 
-    $store = Get-Content -LiteralPath $CredentialPath -Raw | ConvertFrom-Json
+    $store = Read-Utf8File $CredentialPath | ConvertFrom-Json
     foreach ($property in @('client_id', 'client_secret_dpapi', 'access_token_dpapi', 'refresh_token_dpapi', 'access_token_expires_at', 'token_endpoint', 'resource')) {
         if ($null -eq $store.$property -or [string]::IsNullOrWhiteSpace([string]$store.$property)) {
             throw "OAuth credential store is missing $property."
@@ -259,7 +274,7 @@ switch ($Action) {
             throw 'Use only one of ArgumentsPath, ArgumentsBase64 or ArgumentsJson.'
         }
         if ($ArgumentsPath) {
-            $rawArguments = Get-Content -LiteralPath $ArgumentsPath -Raw
+            $rawArguments = Read-Utf8File $ArgumentsPath
         } elseif ($ArgumentsBase64) {
             try {
                 $rawArguments = (New-Object System.Text.UTF8Encoding($false, $true)).GetString([Convert]::FromBase64String($ArgumentsBase64))
@@ -288,7 +303,7 @@ $cacheStatus = if ($Action -eq 'tools') { 'miss' } else { 'not_used' }
 $skipRequest = $false
 if ($Action -eq 'tools' -and (Test-Path -LiteralPath $CachePath)) {
     try {
-        $cache = Get-Content -LiteralPath $CachePath -Raw | ConvertFrom-Json
+        $cache = Read-Utf8File $CachePath | ConvertFrom-Json
         if ($null -eq $cache.response -or $null -eq $cache.response.tools -or [string]$cache.resource -ne $resourceRoot) {
             $cache = $null
         }
