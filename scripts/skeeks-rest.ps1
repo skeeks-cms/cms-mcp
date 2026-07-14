@@ -165,7 +165,9 @@ if (!$CredentialPath) {
 $CredentialPath = [IO.Path]::GetFullPath($CredentialPath)
 
 if (!(Test-Path -LiteralPath $CredentialPath)) {
-    throw "OAuth credential store not found for $Site. Complete REST OAuth authorization first."
+    $loginScript = Join-Path $PSScriptRoot 'skeeks-rest-login.ps1'
+    $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    throw "OAuth credential store not found for $Site. Run: & '$powershellExe' -NoProfile -ExecutionPolicy Bypass -File '$loginScript' -Site '$Site'"
 }
 
 Add-Type -AssemblyName System.Security

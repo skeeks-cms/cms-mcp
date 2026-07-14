@@ -117,6 +117,10 @@ not in cache.
 The canonical Windows OAuth/REST client is
 `scripts/skeeks-rest.ps1` in this package. Keep MCP/REST transport helpers here,
 not in `skeeks/cms`; the CMS skill may document and invoke this installed file.
+For a site without a credential store, run
+`scripts/skeeks-rest-login.ps1 -Site <domain>` once. It owns dynamic client
+registration, PKCE S256, the loopback callback, browser launch and DPAPI storage;
+agents must not recreate that flow with ad-hoc scripts or inspect browser cookies.
 
 If a tool returns `requires_confirmation`, stop before the external or
 duplicate-producing action, explain the exact consequence and ask the user.

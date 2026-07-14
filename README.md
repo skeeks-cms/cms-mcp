@@ -12,6 +12,8 @@ authorized user:
 ```text
 GET  /cms/rest-api                  API metadata
 GET  /cms/rest-api/tools            available tools and JSON Schemas
+GET  /cms/rest-api/tools/index      compact authorized tool inventory
+GET  /cms/rest-api/tools/{name}     one authorized tool schema
 GET  /cms/rest-api/context          cms_site_context_get shortcut
 GET  /cms/rest-api/openapi          generated OpenAPI 3.0 document
 POST /cms/rest-api/tools/{tool_name} execute a tool with its arguments as JSON
@@ -29,6 +31,20 @@ curl -X POST https://example.com/cms/rest-api/tools/cms_site_get \
 REST is a transport adapter rather than a second implementation: MCP and REST
 both execute the same registered tools, domain services, OAuth scope checks and
 CMS permissions. Access tokens remain managed by `skeeks/cms-oauth2-server`.
+
+On Windows, authorize a site once with the packaged OAuth client and then use
+the REST client for discovery and execution:
+
+```powershell
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-rest-login.ps1' -Site 'example.com'
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-rest.ps1' -Site 'example.com' -Action tools-index
+```
+
+The login client performs metadata discovery, dynamic client registration,
+PKCE S256, loopback callback handling and DPAPI credential storage. It opens
+the user's default browser and never prints tokens or client secrets. The REST
+client rotates refresh tokens and caches the authorized tool catalog by ETag
+and `tools_revision`.
 
 Project-specific tools are registered in application configuration:
 
