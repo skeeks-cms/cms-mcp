@@ -9,6 +9,7 @@ use Yii;
 use yii\filters\VerbFilter;
 use yii\helpers\Json;
 use yii\helpers\Url;
+use yii\web\ForbiddenHttpException;
 use yii\web\Response;
 use yii\web\UnauthorizedHttpException;
 
@@ -83,19 +84,19 @@ class McpController extends Controller
     protected function callTool($id, array $params, $accessToken): array
     {
         $tool = $this->mcp()->getTool((string)($params['name'] ?? ''));
-        if ($tool->getRequiredScope() && !$accessToken->hasScope($tool->getRequiredScope())) {
-            return $this->error($id, -32003, 'Missing OAuth scope: '.$tool->getRequiredScope());
-        }
-        if (!$this->mcp()->canExecuteTool($tool)) {
-            return $this->error($id, -32003, 'The authorized CMS user has no permission to execute this tool.');
-        }
         try {
-            $data = $tool->execute((array)($params['arguments'] ?? []));
+            $data = $this->mcp()->execute(
+                $tool,
+                (array)($params['arguments'] ?? []),
+                $accessToken
+            );
             return $this->result($id, [
                 'content' => [['type' => 'text', 'text' => Json::encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]],
                 'structuredContent' => $data,
                 'isError' => false,
             ]);
+        } catch (ForbiddenHttpException $e) {
+            return $this->error($id, -32003, $e->getMessage());
         } catch (\Throwable $e) {
             return $this->result($id, [
                 'content' => [['type' => 'text', 'text' => $e->getMessage()]],
@@ -103,6 +104,13 @@ class McpController extends Controller
                 'isError' => true,
             ]);
         }
+    }
+
+    protected function payload(): array
+    {
+        $payload = Yii::$app->request->bodyParams;
+        if (!$payload && Yii::$app->request->rawBody) { $payload = Json::decode(Yii::$app->request->rawBody); }
+        return (array)$payload;
     }
 
     protected function authenticateBearer()
@@ -119,9 +127,6 @@ class McpController extends Controller
             $this->challenge();
             throw $e;
         }
-        // Bearer authentication is stateless. Persisting the identity through
-        // login() starts a PHP session and regenerates its id on every MCP call,
-        // which can serialize concurrent requests behind a session lock.
         Yii::$app->user->setIdentity($token->cmsUser);
         return $token;
     }
@@ -133,12 +138,6 @@ class McpController extends Controller
         Yii::$app->response->headers->set('WWW-Authenticate', 'Bearer resource_metadata="'.$metadata.'"');
     }
 
-    protected function payload(): array
-    {
-        $payload = Yii::$app->request->bodyParams;
-        if (!$payload && Yii::$app->request->rawBody) { $payload = Json::decode(Yii::$app->request->rawBody); }
-        return (array)$payload;
-    }
     protected function result($id, array $result): array { return ['jsonrpc' => self::JSONRPC_VERSION, 'id' => $id, 'result' => $result]; }
     protected function error($id, int $code, string $message, array $data = null): array
     {

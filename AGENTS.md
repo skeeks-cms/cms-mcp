@@ -37,12 +37,24 @@ https://<site-domain>/cms/mcp
 ```
 
 The OAuth protected-resource identifier is the exact same URL. A Codex client
-must therefore be configured as follows:
+must therefore be configured with a site-specific MCP server key. Do not use a
+generic key such as `skeeks` for project sites; name the server after the
+specific site so several SkeekS CMS sites can coexist in one Codex setup. Use a
+stable lowercase ASCII key derived from the domain, for example `blizco` for
+`bliz.co`:
 
 ```toml
-[mcp_servers.skeeks]
+[mcp_servers.<site-key>]
 url = "https://<site-domain>/cms/mcp"
 oauth_resource = "https://<site-domain>/cms/mcp"
+```
+
+For `https://bliz.co/cms/mcp`, the project-scoped configuration should be:
+
+```toml
+[mcp_servers.blizco]
+url = "https://bliz.co/cms/mcp"
+oauth_resource = "https://bliz.co/cms/mcp"
 ```
 
 Use the actual target site's domain and HTTPS scheme. Preserve an intentional

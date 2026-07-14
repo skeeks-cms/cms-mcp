@@ -7,6 +7,7 @@ use skeeks\cms\mcp\tools\McpToolProviderInterface;
 use yii\base\Component;
 use yii\base\InvalidConfigException;
 use skeeks\cms\rbac\CmsManager;
+use yii\web\ForbiddenHttpException;
 
 class McpComponent extends Component
 {
@@ -15,6 +16,7 @@ class McpComponent extends Component
     public $protocolVersion = '2024-11-05';
     public $oauth2Component = 'oauth2Server';
     public $resourceRoute = ['/cms/mcp'];
+    public $restResourceRoute = ['/cms/rest-api'];
     public $toolProviders = [];
     public $tools = [];
     public $permissionName = CmsManager::PERMISSION_ADMIN_ACCESS;
@@ -53,11 +55,55 @@ class McpComponent extends Component
         return $result;
     }
 
+    public function getAuthorizedToolSchemas($accessToken, bool $includeScope = false): array
+    {
+        $result = [];
+        foreach ($this->getTools() as $tool) {
+            $requiredScope = $tool->getRequiredScope();
+            if ($requiredScope && !$accessToken->hasScope($requiredScope)) {
+                continue;
+            }
+            if (!$this->canExecuteTool($tool)) {
+                continue;
+            }
+
+            $schema = [
+                'name' => $tool->getName(),
+                'description' => $tool->getDescription(),
+                'inputSchema' => $tool->getInputSchema(),
+            ];
+            if ($includeScope) {
+                $schema['requiredScope'] = $requiredScope;
+            }
+            $result[] = $schema;
+        }
+
+        return $result;
+    }
+
     public function canExecuteTool(McpToolInterface $tool): bool
     {
         $permission = $this->toolPermissions[$tool->getName()] ?? $this->permissionName;
         if ($permission === null || $permission === '') { return true; }
         return !\Yii::$app->user->isGuest && \Yii::$app->user->can($permission);
+    }
+
+    public function executeTool(string $name, array $arguments, $accessToken): array
+    {
+        return $this->execute($this->getTool($name), $arguments, $accessToken);
+    }
+
+    public function execute(McpToolInterface $tool, array $arguments, $accessToken): array
+    {
+        $requiredScope = $tool->getRequiredScope();
+        if ($requiredScope && !$accessToken->hasScope($requiredScope)) {
+            throw new ForbiddenHttpException('Missing OAuth scope: '.$requiredScope);
+        }
+        if (!$this->canExecuteTool($tool)) {
+            throw new ForbiddenHttpException('The authorized CMS user has no permission to execute this tool.');
+        }
+
+        return $tool->execute($arguments);
     }
 
     protected function addTool(array &$result, $tool): void
