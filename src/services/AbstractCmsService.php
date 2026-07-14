@@ -28,19 +28,96 @@ abstract class AbstractCmsService extends Component
         return $data;
     }
 
-    protected function page($query, array $arguments, callable $serializer = null): array
+    protected function page($query, array $arguments, callable $serializer = null, array $telemetry = []): array
     {
         $limit = max(1, min(100, (int)($arguments['limit'] ?? 50)));
         $offset = max(0, (int)($arguments['offset'] ?? 0));
-        $total = (int)(clone $query)->count();
         $serializer = $serializer ?: [$this, 'recordData'];
 
-        return [
-            'items' => array_map($serializer, $query->limit($limit)->offset($offset)->all()),
+        if (!$telemetry) {
+            $total = (int)(clone $query)->count();
+            return [
+                'items' => array_map($serializer, $query->limit($limit)->offset($offset)->all()),
+                'total' => $total,
+                'limit' => $limit,
+                'offset' => $offset,
+            ];
+        }
+
+        $baseContext = array_merge($telemetry, [
+            'limit' => $limit,
+            'offset' => $offset,
+        ]);
+        $pageStartedAt = ApiLogService::startedAt();
+
+        $phaseStartedAt = ApiLogService::startedAt();
+        ApiLogService::info('page.count.start', $baseContext, ApiLogService::CATEGORY_TASK, true);
+        try {
+            $total = (int)(clone $query)->count();
+            $countMs = ApiLogService::durationMs($phaseStartedAt);
+            ApiLogService::info('page.count.finish', array_merge($baseContext, [
+                'duration_ms' => $countMs,
+                'total' => $total,
+            ]), ApiLogService::CATEGORY_TASK);
+        } catch (\Throwable $e) {
+            ApiLogService::error('page.count.error', array_merge($baseContext, [
+                'duration_ms' => ApiLogService::durationMs($phaseStartedAt),
+            ], ApiLogService::exception($e)), ApiLogService::CATEGORY_TASK, true);
+            throw $e;
+        }
+
+        $phaseStartedAt = ApiLogService::startedAt();
+        ApiLogService::info('page.fetch.start', array_merge($baseContext, [
+            'total' => $total,
+        ]), ApiLogService::CATEGORY_TASK, true);
+        try {
+            $models = $query->limit($limit)->offset($offset)->all();
+            $fetchMs = ApiLogService::durationMs($phaseStartedAt);
+            ApiLogService::info('page.fetch.finish', array_merge($baseContext, [
+                'duration_ms' => $fetchMs,
+                'models_count' => count($models),
+            ]), ApiLogService::CATEGORY_TASK);
+        } catch (\Throwable $e) {
+            ApiLogService::error('page.fetch.error', array_merge($baseContext, [
+                'duration_ms' => ApiLogService::durationMs($phaseStartedAt),
+            ], ApiLogService::exception($e)), ApiLogService::CATEGORY_TASK, true);
+            throw $e;
+        }
+
+        $phaseStartedAt = ApiLogService::startedAt();
+        ApiLogService::info('page.serialize.start', array_merge($baseContext, [
+            'models_count' => count($models),
+        ]), ApiLogService::CATEGORY_TASK, true);
+        try {
+            $items = array_map($serializer, $models);
+            $serializeMs = ApiLogService::durationMs($phaseStartedAt);
+            ApiLogService::info('page.serialize.finish', array_merge($baseContext, [
+                'duration_ms' => $serializeMs,
+                'items_count' => count($items),
+            ]), ApiLogService::CATEGORY_TASK);
+        } catch (\Throwable $e) {
+            ApiLogService::error('page.serialize.error', array_merge($baseContext, [
+                'duration_ms' => ApiLogService::durationMs($phaseStartedAt),
+            ], ApiLogService::exception($e)), ApiLogService::CATEGORY_TASK, true);
+            throw $e;
+        }
+
+        $result = [
+            'items' => $items,
             'total' => $total,
             'limit' => $limit,
             'offset' => $offset,
         ];
+        ApiLogService::info('page.finish', array_merge($baseContext, [
+            'duration_ms' => ApiLogService::durationMs($pageStartedAt),
+            'count_ms' => $countMs,
+            'fetch_ms' => $fetchMs,
+            'serialize_ms' => $serializeMs,
+            'total' => $total,
+            'items_count' => count($items),
+        ]), ApiLogService::CATEGORY_TASK, true);
+
+        return $result;
     }
 
     protected function find(string $class, array $arguments)

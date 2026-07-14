@@ -13,6 +13,7 @@ class CmsTaskService extends AbstractCmsService
 
     public function taskList(array $arguments): array
     {
+        $startedAt = ApiLogService::startedAt();
         $query = CmsTask::find()->forManager(\Yii::$app->user->identity)->with(['createdBy', 'updatedBy', 'executor', 'cmsProject', 'cmsCompany']);
         $this->applyFilters($query, CmsTask::class, $arguments, ['status', 'executor_id', 'cms_project_id', 'cms_company_id', 'cms_user_id', 'parent_cms_task_id', 'created_by', 'updated_by']);
         $this->applySearch($query, CmsTask::class, $arguments, ['name', 'description']);
@@ -21,7 +22,23 @@ class CmsTaskService extends AbstractCmsService
         $sort = (string)($arguments['sort_by'] ?? 'executor_sort');
         if (!in_array($sort, ['id', 'created_at', 'plan_start_at', 'plan_end_at', 'executor_sort', 'status'], true)) { throw new Exception('Unsupported task sort.'); }
         $direction = strtolower((string)($arguments['sort_direction'] ?? 'asc')) === 'desc' ? SORT_DESC : SORT_ASC;
-        return $this->page($query->orderBy([CmsTask::tableName().'.'.$sort => $direction]), $arguments, [$this, 'taskData']);
+        $queryBuildMs = ApiLogService::durationMs($startedAt);
+        ApiLogService::info('task_list.query.ready', [
+            'query_build_ms' => $queryBuildMs,
+            'arguments' => ApiLogService::summarizeArguments($arguments),
+        ], ApiLogService::CATEGORY_TASK, true);
+
+        return $this->page(
+            $query->orderBy([CmsTask::tableName().'.'.$sort => $direction]),
+            $arguments,
+            [$this, 'taskData'],
+            [
+                'operation' => 'cms_task_list',
+                'query_build_ms' => $queryBuildMs,
+                'sort_by' => $sort,
+                'sort_direction' => $direction === SORT_DESC ? 'desc' : 'asc',
+            ]
+        );
     }
 
     public function taskGet(array $arguments): array { return $this->taskData($this->findAllowed(CmsTask::class, $arguments), true); }

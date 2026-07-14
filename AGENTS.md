@@ -83,6 +83,41 @@ not resolved, or a project-specific default. A local application `AGENTS.md`
 may define safe defaults such as a default task executor and takes precedence
 for that project.
 
+## Tool catalog versioning and client cache
+
+The tool catalog is self-describing and versioned at three levels:
+
+- `api_version` is the stable REST/MCP contract version;
+- `server_version` is the installed `skeeks/cms-mcp` implementation version;
+- `tools_revision` is a SHA-256 digest of the exact schemas, scopes and tools
+  authorized for the current OAuth user.
+
+Do not use `server_version` alone as a cache key. Optional providers, project
+extensions, OAuth scopes and CMS RBAC can change the authorized catalog without
+changing the package release. REST `/tools` responses use a private ETag based
+on `tools_revision`; clients should persist the catalog outside the chat and
+revalidate with `If-None-Match`. A `304 Not Modified` response means the cached
+schemas remain authoritative. Never share a catalog cache between OAuth
+credential stores or users.
+
+REST discovery supports:
+
+- `GET /cms/rest-api/tools` for full schemas, with `prefix`, `names` and `q`
+  server-side filters;
+- `GET /cms/rest-api/tools/index` for a compact name/description/scope index;
+- `GET /cms/rest-api/tools/{tool_name}` for one authorized schema.
+
+MCP `initialize` and `tools/list` expose the same authorized revision under
+`_meta.skeeks/toolsRevision`. MCP clients may persist `tools/list` by this
+revision, although they must still follow their host client's MCP lifecycle.
+Agents should reuse a known cached schema instead of repeatedly reading the
+entire catalog. Fetch only a family or one schema when the requested method is
+not in cache.
+
+The canonical Windows OAuth/REST client is
+`scripts/skeeks-rest.ps1` in this package. Keep MCP/REST transport helpers here,
+not in `skeeks/cms`; the CMS skill may document and invoke this installed file.
+
 If a tool returns `requires_confirmation`, stop before the external or
 duplicate-producing action, explain the exact consequence and ask the user.
 Retry with the returned confirmation flag only after explicit approval.
@@ -198,6 +233,27 @@ name a different `executor_id`, but its creator remains the OAuth user.
 Bearer authentication is stateless: establish the CMS identity with
 `Yii::$app->user->setIdentity()` and never call `login()`, start a PHP session
 or regenerate a session id from the MCP controller.
+
+## API observability
+
+MCP and REST requests use structured Yii logging through `ApiLogService`.
+Keep these categories stable so applications can route them independently:
+
+- `skeeks.cms.api.rest`: REST request, authentication, tool and response timing;
+- `skeeks.cms.api.mcp`: MCP request, JSON-RPC, authentication, tool and response timing;
+- `skeeks.cms.api.task`: detailed `cms_task_list` count, fetch and serialization phases.
+
+Start events for requests, tools and task-list phases are flushed immediately,
+so the last persisted event identifies the phase in which a terminated request
+was waiting. Every request has an `X-Request-ID` response header and the same id
+in all related log records. Never log bearer headers, access or refresh tokens,
+client secrets, cookies, passwords, raw request bodies, uploaded data, full
+descriptions or arbitrary search text. Log only safe argument summaries,
+durations, counts, memory, user ids and redacted exceptions.
+
+Applications enable file collection with Yii `FileTarget` entries for these
+categories. Transport-independent business logic remains free of project log
+paths; project configuration owns filenames, rotation and retention.
 
 For task reads, `q` searches the task name and description only. Resolve a
 worker first and use `created_by` for the author, `executor_id` for the
