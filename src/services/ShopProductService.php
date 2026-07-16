@@ -30,8 +30,7 @@ class ShopProductService extends AbstractCmsService
     {
         $content = CmsContent::findOne((int)($a['content_id'] ?? 0));
         if (!$content) { throw new Exception('cms_content not found.'); }
-        $element = $content->createElement();
-        if (!$element instanceof ShopCmsContentElement) { throw new Exception('cms_content is not configured for ShopCmsContentElement.'); }
+        $element = $this->createProductElement($content);
         return $this->saveProduct($element, new ShopProduct(), $a, true);
     }
 
@@ -45,12 +44,22 @@ class ShopProductService extends AbstractCmsService
     public function productValidate(array $a): array
     {
         if (!empty($a['id'])) { $product = $this->find(ShopProduct::class, $a); $element = $product->cmsContentElement; }
-        else { $content = CmsContent::findOne((int)($a['content_id'] ?? 0)); if (!$content) { throw new Exception('cms_content not found.'); } $element = $content->createElement(); $product = new ShopProduct(); }
+        else { $content = CmsContent::findOne((int)($a['content_id'] ?? 0)); if (!$content) { throw new Exception('cms_content not found.'); } $element = $this->createProductElement($content); $product = new ShopProduct(); }
         $this->applyProductInput($element, $product, $a);
         $validElement = $element->validate();
         $validProduct = $product->validate();
         $propertyErrors = $this->validateProperties($element, $a);
         return ['valid' => $validElement && $validProduct && !$propertyErrors, 'element_errors' => $element->errors, 'product_errors' => $product->errors, 'property_errors' => $propertyErrors];
+    }
+
+    protected function createProductElement(CmsContent $content): ShopCmsContentElement
+    {
+        $element = $content->createElement();
+
+        return new ShopCmsContentElement([
+            'content_id' => $element->content_id,
+            'cms_site_id' => $element->cms_site_id,
+        ]);
     }
 
     public function productStats(array $a): array
