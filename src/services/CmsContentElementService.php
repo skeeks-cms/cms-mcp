@@ -111,10 +111,10 @@ class CmsContentElementService extends AbstractCmsService
             throw new Exception('cms_content not found.');
         }
         $model = $content->createElement();
-        $this->apply($model, $arguments, $this->writableAttributes());
-        $model->active = $this->publishedValue($arguments, 'N');
         $transaction = CmsContentElement::getDb()->beginTransaction();
         try {
+            $this->apply($model, $arguments, $this->writableAttributes());
+            $model->active = $this->publishedValue($arguments, 'N');
             if (!$model->save()) {
                 throw new Exception($this->modelErrors($model));
             }
@@ -131,14 +131,22 @@ class CmsContentElementService extends AbstractCmsService
     public function elementUpdate(array $arguments): array
     {
         $model = $this->find(CmsContentElement::class, $arguments);
-        $this->apply($model, $arguments, $this->writableAttributes());
-        if (array_key_exists('publish', $arguments)) {
-            $model->active = $this->publishedValue($arguments, $model->active);
+        $transaction = CmsContentElement::getDb()->beginTransaction();
+        try {
+            $this->apply($model, $arguments, $this->writableAttributes());
+            $this->preservePrimaryImageFromGallery($model, $arguments);
+            if (array_key_exists('publish', $arguments)) {
+                $model->active = $this->publishedValue($arguments, $model->active);
+            }
+            if (!$model->save()) {
+                throw new Exception($this->modelErrors($model));
+            }
+            $this->saveProperties($model, $arguments);
+            $transaction->commit();
+        } catch (\Throwable $e) {
+            $transaction->rollBack();
+            throw $e;
         }
-        if (!$model->save()) {
-            throw new Exception($this->modelErrors($model));
-        }
-        $this->saveProperties($model, $arguments);
         $model->refresh();
         return $this->elementData($model, true);
     }

@@ -134,7 +134,11 @@ class CoreToolProvider extends Component implements McpToolProviderInterface
             'attributes' => ['type' => 'object'],
             'properties' => ['type' => 'object'],
             'publish' => ['type' => 'boolean'],
-            'image_ids' => ['type' => 'array', 'items' => ['type' => 'integer']],
+            'image_ids' => [
+                'type' => 'array',
+                'items' => ['type' => 'integer'],
+                'description' => 'Ordered images: the first id becomes image_id, remaining unique ids form the gallery. An empty array clears only the gallery unless image_id is explicitly null.',
+            ],
             'file_ids' => ['type' => 'array', 'items' => ['type' => 'integer']],
         ], $required);
     }

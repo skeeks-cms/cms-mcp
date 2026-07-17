@@ -2,6 +2,8 @@
 
 namespace skeeks\cms\mcp\services;
 
+use skeeks\cms\models\CmsContentElement;
+use skeeks\cms\models\CmsContentElementImage;
 use skeeks\cms\models\CmsSite;
 use yii\base\Component;
 use yii\base\Exception;
@@ -241,16 +243,75 @@ abstract class AbstractCmsService extends Component
     protected function apply(ActiveRecord $model, array $arguments, array $allowed): void
     {
         $source = array_merge($arguments, (array)($arguments['attributes'] ?? []));
+
+        if (array_key_exists('image_ids', $source) && $model->canSetProperty('imageIds')) {
+            $imageIds = array_values(array_unique(array_filter(array_map('intval', (array)$source['image_ids']))));
+            $canSetPrimaryImage = in_array('image_id', $allowed, true)
+                && ($model->hasAttribute('image_id') || $model->canSetProperty('image_id'));
+
+            if ($canSetPrimaryImage) {
+                $hasExplicitPrimaryImage = array_key_exists('image_id', $source);
+                if ($hasExplicitPrimaryImage) {
+                    $primaryImageId = $source['image_id'] === null ? null : (int)$source['image_id'];
+                } elseif ($imageIds) {
+                    $primaryImageId = (int)array_shift($imageIds);
+                    $source['image_id'] = $primaryImageId;
+                } else {
+                    $primaryImageId = $model->image_id ? (int)$model->image_id : null;
+                }
+
+                if ($primaryImageId) {
+                    $imageIds = array_values(array_filter($imageIds, static function ($id) use ($primaryImageId) {
+                        return (int)$id !== (int)$primaryImageId;
+                    }));
+                }
+            }
+
+            // Synchronize the gallery first. Explicit scalar attributes below must win,
+            // especially image_id, because SkeekS storage behaviors process both fields.
+            $model->imageIds = $imageIds;
+        }
+
+        if (array_key_exists('file_ids', $source) && $model->canSetProperty('fileIds')) {
+            $model->fileIds = array_values(array_unique(array_filter(array_map('intval', (array)$source['file_ids']))));
+        }
+
         foreach ($allowed as $name) {
             if (array_key_exists($name, $source) && $model->canSetProperty($name)) {
                 $model->{$name} = $source[$name];
             }
         }
-        if (array_key_exists('image_ids', $source) && $model->canSetProperty('imageIds')) {
-            $model->imageIds = $source['image_ids'];
+    }
+
+    /**
+     * Detach a legacy duplicate gallery relation without deleting the storage file
+     * that is still referenced by image_id.
+     */
+    protected function preservePrimaryImageFromGallery(ActiveRecord $model, array $arguments): void
+    {
+        $source = array_merge($arguments, (array)($arguments['attributes'] ?? []));
+        if (!array_key_exists('image_ids', $source)
+            || $model->isNewRecord
+            || !($model instanceof CmsContentElement)
+            || !$model->canGetProperty('imageIds')) {
+            return;
         }
-        if (array_key_exists('file_ids', $source) && $model->canSetProperty('fileIds')) {
-            $model->fileIds = $source['file_ids'];
+
+        $primaryImageId = $model->hasAttribute('image_id') ? (int)$model->image_id : 0;
+        if (!$primaryImageId || in_array($primaryImageId, array_map('intval', (array)$model->imageIds), true)) {
+            return;
+        }
+
+        CmsContentElementImage::deleteAll([
+            'content_element_id' => (int)$model->getPrimaryKey(),
+            'storage_file_id' => $primaryImageId,
+        ]);
+
+        if ($model->isRelationPopulated('images')) {
+            $images = array_values(array_filter((array)$model->images, static function ($image) use ($primaryImageId) {
+                return (int)$image->id !== $primaryImageId;
+            }));
+            $model->populateRelation('images', $images);
         }
     }
 

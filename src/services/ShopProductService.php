@@ -140,9 +140,10 @@ class ShopProductService extends AbstractCmsService
 
     protected function saveProduct(ShopCmsContentElement $element, ShopProduct $product, array $a, bool $new): array
     {
-        $this->applyProductInput($element, $product, $a);
         $transaction = ShopProduct::getDb()->beginTransaction();
         try {
+            $this->applyProductInput($element, $product, $a);
+            $this->preservePrimaryImageFromGallery($element, array_merge($a, (array)($a['element'] ?? [])));
             $this->save($element, 'Product element validation failed');
             $this->saveProperties($element, $a);
             if ($new) { $product->id = $element->id; }
