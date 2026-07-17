@@ -5,6 +5,7 @@ namespace skeeks\cms\mcp\services;
 use skeeks\cms\models\CmsContent;
 use skeeks\cms\shop\models\ShopCmsContentElement;
 use skeeks\cms\shop\models\ShopProduct;
+use skeeks\cms\shop\models\ShopProductBarcode;
 use yii\base\Exception;
 
 class ShopProductService extends AbstractCmsService
@@ -15,13 +16,77 @@ class ShopProductService extends AbstractCmsService
     public function productList(array $a): array
     {
         $q = ShopProduct::find()->joinWith('cmsContentElement element');
-        $this->applyFilters($q, ShopProduct::class, $a, ['brand_id', 'product_type', 'measure_code', 'country_alpha2', 'offers_pid']);
+        $this->applyFilters($q, ShopProduct::class, $a, ['id', 'brand_id', 'brand_sku', 'product_type', 'measure_code', 'country_alpha2', 'offers_pid']);
         foreach (['content_id', 'tree_id', 'cms_site_id', 'active'] as $field) {
             $filters = array_merge((array)($a['filters'] ?? []), $a);
-            if (isset($filters[$field]) && $filters[$field] !== '') { $q->andWhere(['element.'.$field => $filters[$field]]); }
+            if (!isset($filters[$field]) || $filters[$field] === '') { continue; }
+            $value = $filters[$field];
+            if ($field === 'active' && is_bool($value)) { $value = $value ? 'Y' : 'N'; }
+            $q->andWhere(['element.'.$field => $value]);
         }
+        if (!empty($a['code'])) { $q->andWhere(['element.code' => (string)$a['code']]); }
         if (!empty($a['q'])) { $q->andWhere(['or', ['like', 'element.name', $a['q']], ['like', 'element.code', $a['q']], ['like', ShopProduct::tableName().'.brand_sku', $a['q']]]); }
         return $this->page($q->orderBy([ShopProduct::tableName().'.id' => SORT_DESC]), $a, [$this, 'productData']);
+    }
+
+    public function productResolve(array $arguments): array
+    {
+        $product = $this->resolveProductModel($arguments);
+        return $product
+            ? array_merge(['found' => true], $this->productReferenceData($product))
+            : ['found' => false];
+    }
+
+    public function productUpsert(array $arguments): array
+    {
+        $match = (array)($arguments['match'] ?? []);
+        $product = $this->resolveProductModel($match);
+        $input = $arguments;
+        unset($input['match'], $input['allow_create'], $input['allow_update']);
+
+        if ($product) {
+            if (array_key_exists('allow_update', $arguments) && !$arguments['allow_update']) {
+                return array_merge(['action' => 'skipped', 'reason' => 'update_disabled'], $this->productReferenceData($product));
+            }
+            $input['id'] = (int)$product->id;
+            $this->productUpdate($input);
+            $product = ShopProduct::findOne((int)$product->id);
+            return array_merge(['action' => 'updated'], $this->productReferenceData($product));
+        }
+
+        if (array_key_exists('allow_create', $arguments) && !$arguments['allow_create']) {
+            return ['action' => 'skipped', 'reason' => 'create_disabled'];
+        }
+        if (!empty($match['id'])) { throw new Exception('Product id was not found; upsert cannot create a record with an explicit id.'); }
+        $input = $this->applyMatchDefaults($input, $match);
+        if (empty($input['content_id']) && !empty($input['element']['content_id'])) {
+            $input['content_id'] = (int)$input['element']['content_id'];
+        }
+        $created = $this->productCreate($input);
+        $product = ShopProduct::findOne((int)$created['id']);
+        return array_merge(['action' => 'created'], $this->productReferenceData($product));
+    }
+
+    public function productBatchUpsert(array $arguments): array
+    {
+        $items = array_values((array)($arguments['items'] ?? []));
+        if (!$items || count($items) > 20) { throw new Exception('items must contain between 1 and 20 product upserts.'); }
+        $results = [];
+        $created = $updated = $skipped = $failed = 0;
+        foreach ($items as $index => $item) {
+            try {
+                $result = $this->productUpsert((array)$item);
+                $action = (string)($result['action'] ?? 'skipped');
+                if ($action === 'created') { $created++; }
+                elseif ($action === 'updated') { $updated++; }
+                else { $skipped++; }
+                $results[] = array_merge(['index' => $index, 'success' => true], $result);
+            } catch (\Throwable $e) {
+                $failed++;
+                $results[] = ['index' => $index, 'success' => false, 'error' => $e->getMessage()];
+            }
+        }
+        return compact('created', 'updated', 'skipped', 'failed', 'results');
     }
 
     public function productGet(array $a): array { return $this->productData($this->find(ShopProduct::class, $a), true); }
@@ -107,5 +172,59 @@ class ShopProductService extends AbstractCmsService
         $data['collections'] = array_map([$this, 'recordData'], $product->collections);
         if ($details && $element) { $data['properties'] = $this->relatedValues($element); $data['store_products'] = array_map([$this, 'recordData'], $product->shopStoreProducts); }
         return $data;
+    }
+
+    protected function resolveProductModel(array $match): ?ShopProduct
+    {
+        $identity = array_filter([
+            'id' => isset($match['id']) ? (int)$match['id'] : 0,
+            'code' => trim((string)($match['code'] ?? '')),
+            'brand_sku' => trim((string)($match['brand_sku'] ?? '')),
+            'barcode' => trim((string)($match['barcode'] ?? '')),
+        ], static function ($value) { return $value !== '' && $value !== 0; });
+        if (!$identity) { throw new Exception('Provide an exact product match: id, code, brand_sku or barcode.'); }
+
+        $query = ShopProduct::find()->joinWith('cmsContentElement element');
+        if (!empty($identity['id'])) { $query->andWhere([ShopProduct::tableName().'.id' => $identity['id']]); }
+        if (!empty($identity['code'])) { $query->andWhere(['element.code' => $identity['code']]); }
+        if (!empty($identity['brand_sku'])) { $query->andWhere([ShopProduct::tableName().'.brand_sku' => $identity['brand_sku']]); }
+        if (!empty($identity['barcode'])) {
+            $productIds = ShopProductBarcode::find()->select('shop_product_id')->andWhere(['value' => $identity['barcode']]);
+            $query->andWhere([ShopProduct::tableName().'.id' => $productIds]);
+        }
+        if (!empty($match['content_id'])) { $query->andWhere(['element.content_id' => (int)$match['content_id']]); }
+        if (!empty($match['cms_site_id'])) { $query->andWhere(['element.cms_site_id' => (int)$match['cms_site_id']]); }
+
+        $products = $query->limit(2)->all();
+        if (count($products) > 1) { throw new Exception('Exact product match is ambiguous; add content_id or cms_site_id.'); }
+        return $products ? reset($products) : null;
+    }
+
+    protected function applyMatchDefaults(array $input, array $match): array
+    {
+        $element = (array)($input['element'] ?? []);
+        $product = (array)($input['product'] ?? []);
+        if (!empty($match['content_id']) && empty($input['content_id']) && empty($element['content_id'])) { $input['content_id'] = (int)$match['content_id']; }
+        if (!empty($match['code']) && empty($element['code'])) { $element['code'] = (string)$match['code']; }
+        if (!empty($match['brand_sku']) && empty($product['brand_sku'])) { $product['brand_sku'] = (string)$match['brand_sku']; }
+        if (!empty($match['barcode']) && empty($product['barcodes'])) { $product['barcodes'] = [['value' => (string)$match['barcode']]]; }
+        if ($element) { $input['element'] = $element; }
+        if ($product) { $input['product'] = $product; }
+        return $input;
+    }
+
+    protected function productReferenceData(ShopProduct $product): array
+    {
+        $element = $product->cmsContentElement;
+        return [
+            'id' => (int)$product->id,
+            'code' => $element ? (string)$element->code : null,
+            'name' => $element ? (string)$element->name : null,
+            'brand_sku' => (string)$product->brand_sku,
+            'content_id' => $element ? (int)$element->content_id : null,
+            'cms_site_id' => $element ? (int)$element->cms_site_id : null,
+            'published' => $element ? $element->active === 'Y' : false,
+            'url' => $element ? $element->absoluteUrl : null,
+        ];
     }
 }

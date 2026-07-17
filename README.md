@@ -53,12 +53,23 @@ download the tool catalog before known operations:
 ```powershell
 & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-api.ps1' -Operation company.search -Query 'SkeekS'
 & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-api.ps1' -Operation task.mine.active -Limit 20
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-api.ps1' -Site 'example.com' -Operation product.resolve -Code 'sku-100'
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-api.ps1' -Site 'example.com' -Operation store-product.resolve -StoreId 1 -ProductId 100
 ```
 
 If a direct call fails because a tool or argument changed, the client reads
 only that tool schema as a fallback. `skeeks-rest.ps1` remains the lower-level
 client for all other tools. List operations are compact by default; pass
 `-Full` only when the complete records are required.
+
+Bulk catalog clients should use exact, idempotent tools instead of repeatedly
+paging list endpoints: `shop_product_resolve`, `shop_product_upsert`,
+`shop_product_batch_upsert`, `shop_store_product_resolve`,
+`shop_store_product_upsert` and `shop_store_product_batch_upsert`. Storage
+uploads remain a separate operation and scope. Content property discovery is
+compact and paginated; fetch one heavy component configuration through
+`cms_content_property_get` and enum values through
+`cms_content_property_enum_list`.
 
 Project-specific tools are registered in application configuration:
 

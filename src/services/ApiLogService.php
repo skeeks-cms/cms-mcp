@@ -3,6 +3,7 @@
 namespace skeeks\cms\mcp\services;
 
 use Yii;
+use yii\web\HttpException;
 
 class ApiLogService
 {
@@ -173,6 +174,17 @@ class ApiLogService
             'exception_code' => $exception->getCode(),
             'message' => self::redactText($exception->getMessage()),
         ];
+    }
+
+    public static function exceptionStatusCode(\Throwable $exception, int $fallback = 500): int
+    {
+        if ($exception instanceof HttpException) {
+            return (int)$exception->statusCode;
+        }
+        if (Yii::$app && Yii::$app->has('response', true) && Yii::$app->response->statusCode >= 400) {
+            return (int)Yii::$app->response->statusCode;
+        }
+        return $fallback;
     }
 
     private static function write(string $level, string $event, array $context, string $category, bool $flush): void

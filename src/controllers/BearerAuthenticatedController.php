@@ -37,7 +37,7 @@ abstract class BearerAuthenticatedController extends Controller
         } catch (\Throwable $e) {
             ApiLogService::error('request.error', array_merge([
                 'duration_ms' => ApiLogService::durationMs($startedAt),
-                'status_code' => Yii::$app->response->statusCode,
+                'status_code' => ApiLogService::exceptionStatusCode($e),
             ], ApiLogService::exception($e)), ApiLogService::CATEGORY_REST, true);
             throw $e;
         } finally {

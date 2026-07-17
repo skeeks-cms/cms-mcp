@@ -4,6 +4,17 @@ return [
     'components' => [
         'urlManager' => [
             'rules' => [
+                [
+                    'pattern' => 'cms/mcp/.well-known/oauth-protected-resource',
+                    'route' => 'cms/oauth/protected-resource',
+                    'verb' => 'GET',
+                    'defaults' => ['path' => 'cms/mcp'],
+                ],
+                [
+                    'pattern' => 'cms/mcp/.well-known/openid-configuration',
+                    'route' => 'cms/oauth/authorization-server',
+                    'verb' => 'GET',
+                ],
                 'GET cms/rest-api' => 'cms/rest-api/index',
                 'GET cms/rest-api/tools' => 'cms/rest-api/tools',
                 'GET cms/rest-api/tools/index' => 'cms/rest-api/tools-index',

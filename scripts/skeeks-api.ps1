@@ -14,6 +14,8 @@ param(
         'site.context',
         'tree.list',
         'content.list',
+        'product.resolve',
+        'store-product.resolve',
         'tool.call'
     )]
     [string]$Operation,
@@ -23,6 +25,9 @@ param(
     [string]$ProfilePath,
 
     [string]$Query,
+
+    [ValidateSet('name', 'all')]
+    [string]$SearchScope = 'name',
 
     [int]$Id,
 
@@ -40,6 +45,18 @@ param(
     [int]$ParentId,
 
     [int]$ContentId,
+
+    [string]$Code,
+
+    [string]$BrandSku,
+
+    [string]$Barcode,
+
+    [string]$ExternalId,
+
+    [int]$StoreId,
+
+    [int]$ProductId,
 
     [string]$ToolName,
 
@@ -126,7 +143,7 @@ function Add-PositiveArgument([hashtable]$Arguments, [string]$Name, [int]$Value)
 }
 
 $operations = [ordered]@{
-    'company.search' = 'Search CRM companies by name, contacts, addresses and related data.'
+    'company.search' = 'Search CRM companies; defaults to the fast name-only scope, use -SearchScope all for related data.'
     'company.get' = 'Read one CRM company by id.'
     'project.search' = 'Search CRM projects.'
     'worker.search' = 'Search active CMS workers.'
@@ -136,6 +153,8 @@ $operations = [ordered]@{
     'site.context' = 'Read the current site, root and active theme context.'
     'tree.list' = 'List site sections, optionally below a parent.'
     'content.list' = 'List content elements by content or tree.'
+    'product.resolve' = 'Resolve one product by exact id, code, brand SKU or barcode without catalog pagination.'
+    'store-product.resolve' = 'Resolve one store position by store and product or external id.'
     'tool.call' = 'Call a known tool directly with base64-encoded JSON arguments.'
 }
 
@@ -168,7 +187,7 @@ switch ($Operation) {
     'company.search' {
         Require-Query
         $tool = 'cms_company_list'
-        $arguments = @{ q = $Query; limit = $Limit }
+        $arguments = @{ q = $Query; search_scope = $SearchScope; limit = $Limit }
     }
     'company.get' {
         Require-Id
@@ -218,6 +237,29 @@ switch ($Operation) {
         $arguments = @{ limit = $Limit }
         Add-PositiveArgument $arguments 'content_id' $ContentId
         Add-PositiveArgument $arguments 'tree_id' $ParentId
+    }
+    'product.resolve' {
+        $tool = 'shop_product_resolve'
+        $arguments = @{}
+        Add-PositiveArgument $arguments 'id' $Id
+        Add-PositiveArgument $arguments 'content_id' $ContentId
+        if ($Code) { $arguments['code'] = $Code }
+        if ($BrandSku) { $arguments['brand_sku'] = $BrandSku }
+        if ($Barcode) { $arguments['barcode'] = $Barcode }
+        if (!$arguments.ContainsKey('id') -and !$Code -and !$BrandSku -and !$Barcode) {
+            throw 'Operation product.resolve requires -Id, -Code, -BrandSku or -Barcode.'
+        }
+    }
+    'store-product.resolve' {
+        $tool = 'shop_store_product_resolve'
+        $arguments = @{}
+        Add-PositiveArgument $arguments 'id' $Id
+        Add-PositiveArgument $arguments 'shop_store_id' $StoreId
+        Add-PositiveArgument $arguments 'shop_product_id' $ProductId
+        if ($ExternalId) { $arguments['external_id'] = $ExternalId }
+        if (!$arguments.ContainsKey('id') -and (!$arguments.ContainsKey('shop_store_id') -or (!$arguments.ContainsKey('shop_product_id') -and !$ExternalId))) {
+            throw 'Operation store-product.resolve requires -Id or -StoreId together with -ProductId/-ExternalId.'
+        }
     }
     'tool.call' {
         if ([string]::IsNullOrWhiteSpace($ToolName) -or $ToolName -notmatch '^[a-z0-9_-]+$') {
@@ -276,11 +318,19 @@ try {
     $result | ConvertTo-Json -Depth 30
 } catch {
     $directError = $_.Exception.Message
+    $statusCode = $null
+    if ($null -ne $_.Exception.Response -and $null -ne $_.Exception.Response.StatusCode) {
+        $statusCode = [int]$_.Exception.Response.StatusCode
+    }
+    $schemaEligible = $statusCode -in @(404, 422) -or
+        $directError -match '(?i)unknown(?: or unauthorized)? (?:mcp )?tool|invalid (?:tool )?arguments?|validation failed'
     $schema = $null
-    try {
-        $schema = & $restClient -Site $Site -Action tool-schema -ToolName $tool
-    } catch {
-        $schema = $null
+    if ($schemaEligible) {
+        try {
+            $schema = & $restClient -Site $Site -Action tool-schema -ToolName $tool
+        } catch {
+            $schema = $null
+        }
     }
     [pscustomobject]@{
         success = $false
@@ -288,8 +338,10 @@ try {
         site = $Site
         tool = $tool
         direct_error = $directError
+        status_code = $statusCode
+        failure_kind = if ($schemaEligible) { 'tool_contract' } else { 'transport_or_server' }
         current_schema = $schema
-        fallback_used = $true
+        fallback_used = $schemaEligible
     } | ConvertTo-Json -Depth 100
     exit 1
 }

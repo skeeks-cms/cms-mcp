@@ -22,7 +22,7 @@ class McpController extends Controller
 
     public function behaviors()
     {
-        return ['verbs' => ['class' => VerbFilter::class, 'actions' => ['index' => ['post']]]];
+        return ['verbs' => ['class' => VerbFilter::class, 'actions' => ['index' => ['get', 'post']]]];
     }
 
     public function runAction($id, $params = [])
@@ -47,7 +47,7 @@ class McpController extends Controller
         } catch (\Throwable $e) {
             ApiLogService::error('request.error', array_merge([
                 'duration_ms' => ApiLogService::durationMs($startedAt),
-                'status_code' => Yii::$app->response->statusCode,
+                'status_code' => ApiLogService::exceptionStatusCode($e),
             ], ApiLogService::exception($e)), ApiLogService::CATEGORY_MCP, true);
             throw $e;
         } finally {
@@ -58,6 +58,14 @@ class McpController extends Controller
     public function actionIndex()
     {
         Yii::$app->response->format = Response::FORMAT_JSON;
+        if (Yii::$app->request->isGet) {
+            Yii::$app->response->statusCode = 405;
+            Yii::$app->response->headers->set('Allow', 'POST');
+            return [
+                'error' => 'method_not_allowed',
+                'message' => 'This MCP endpoint uses stateless Streamable HTTP and accepts JSON-RPC via POST.',
+            ];
+        }
         $accessToken = $this->authenticateBearer();
         $payload = $this->payload();
         $response = $this->handle($payload, $accessToken);

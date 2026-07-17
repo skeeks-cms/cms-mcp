@@ -14,7 +14,7 @@ use yii\web\ForbiddenHttpException;
 class McpComponent extends Component
 {
     public $serverName = 'skeeks-cms';
-    public $serverVersion = '1.2.0';
+    public $serverVersion = '1.3.0';
     public $apiVersion = '1';
     public $protocolVersion = '2024-11-05';
     public $oauth2Component = 'oauth2Server';
@@ -26,6 +26,11 @@ class McpComponent extends Component
     public $toolPermissions = [];
     public $enableApiLogging = true;
     public $slowToolThresholdMs = 2000;
+    public $slowToolThresholds = [
+        'cms_company_list' => 500,
+        'shop_product_list' => 500,
+        'cms_content_property_list' => 500,
+    ];
     private $_tools;
 
     /** @return McpToolInterface[] */
@@ -158,10 +163,14 @@ class McpComponent extends Component
                     'duration_ms' => $durationMs,
                     'result' => ApiLogService::summarizeResult($result),
                 ];
-                if ($durationMs >= (int)$this->slowToolThresholdMs) {
-                    ApiLogService::warning('tool.slow', $finishContext, $category);
-                } else {
-                    ApiLogService::info('tool.finish', $finishContext, $category);
+                ApiLogService::info('tool.finish', $finishContext, $category);
+                $thresholdMs = isset($this->slowToolThresholds[$tool->getName()])
+                    ? (int)$this->slowToolThresholds[$tool->getName()]
+                    : (int)$this->slowToolThresholdMs;
+                if ($durationMs >= $thresholdMs) {
+                    ApiLogService::warning('tool.slow', array_merge($finishContext, [
+                        'threshold_ms' => $thresholdMs,
+                    ]), $category);
                 }
             }
             return $result;

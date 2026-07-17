@@ -304,7 +304,16 @@ class CmsCompanyService extends AbstractCmsService
     {
         $filters = array_merge((array)($arguments['filters'] ?? []), $arguments);
         $this->applyFilters($query, CmsCompany::class, $arguments, ['id', 'cms_company_status_id', 'company_type', 'created_by']);
-        if (!empty($arguments['q'])) { $query->search((string)$arguments['q']); }
+        if (!empty($arguments['q'])) {
+            $searchScope = (string)($arguments['search_scope'] ?? 'all');
+            if ($searchScope === 'name') {
+                $query->andWhere(['like', CmsCompany::tableName().'.name', (string)$arguments['q']]);
+            } elseif ($searchScope === 'all') {
+                $query->search((string)$arguments['q']);
+            } else {
+                throw new Exception('Unsupported company search_scope.');
+            }
+        }
         $this->applyDateRange($query, CmsCompany::class, $arguments, 'created_at');
 
         if (isset($filters['cms_company_category_id']) && $filters['cms_company_category_id'] !== '' && $filters['cms_company_category_id'] !== null) {

@@ -116,7 +116,8 @@ not in cache.
 
 For stable core operations, use the direct-first path. The canonical
 `scripts/skeeks-api.ps1` maps compact operations such as `company.search`,
-`task.mine.active` and `site.context` directly to their existing tools. Do not
+`task.mine.active`, `product.resolve`, `store-product.resolve` and
+`site.context` directly to their existing tools. Do not
 read `/tools`, inspect the credential store or call context before these known
 operations. Fetch `tools/{name}` only after the direct call reports an unknown
 tool or invalid arguments. Every REST execution response exposes
@@ -189,7 +190,7 @@ of truth is MCP `tools/list`.
 - Settings: `cms_component_settings_list`, `cms_component_settings_get`, `cms_component_settings_get_effective`.
 - Tree: `cms_tree_list`, `cms_tree_get`, `cms_tree_resolve`, `cms_tree_create`, `cms_tree_update`, `cms_tree_validate`.
 - Tree types: `cms_tree_type_list`, `cms_tree_type_get`, `cms_tree_type_property_list`.
-- Content: `cms_content_type_list`, `cms_content_type_get`, `cms_content_list`, `cms_content_get`, `cms_content_property_list`.
+- Content: `cms_content_type_list`, `cms_content_type_get`, `cms_content_list`, `cms_content_get`, compact `cms_content_property_list`, targeted `cms_content_property_get` and paginated `cms_content_property_enum_list`.
 - Elements: `cms_content_element_list`, `cms_content_element_get`, `cms_content_element_create`, `cms_content_element_update`, `cms_content_element_validate`.
 - Files: `cms_storage_file_list`, `cms_storage_file_get`, `cms_storage_file_upload`.
 
@@ -229,6 +230,16 @@ Never mutate `shop_store_product.quantity` directly. Use
 cards are drafts unless `publish=true`. Resolve `cms_content`, tree, brand,
 collection, measure and product type first; ask the user when the choice is
 ambiguous.
+
+For imports and exact lookups, never page through a whole product catalog or
+store. Use `shop_product_resolve` with `id`, `code`, `brand_sku` or `barcode`,
+and `shop_store_product_resolve` with `shop_store_id` plus `shop_product_id` or
+`external_id`. Use the domain-specific `shop_product_upsert` and
+`shop_store_product_upsert` tools for idempotent writes. Their batch variants
+accept at most 20 products and 50 store positions and return an independent
+result per row. Upload files separately under `cms.storage.write`, then pass
+their ids to product upsert; do not bypass OAuth scope separation in a
+cross-domain composite tool.
 
 Price mutations use `ShopProductPrice` business behavior and add an explicit
 `shop_product_price_change` audit record. Existing bill and document positions
@@ -293,6 +304,9 @@ only `from_category_id` to `to_category_id`, preserves every other category,
 accepts at most 100 authorized companies and returns compact before/after ID
 arrays. Company user and manager relations must always be serialized as safe
 references, never as raw `cms_user` records.
+For ordinary company-name lookup, set `search_scope=name`; use
+`search_scope=all` only when contacts, addresses, contractors or related users
+must participate in the search.
 
 ## Content creation workflow
 
