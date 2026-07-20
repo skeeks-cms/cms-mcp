@@ -77,6 +77,56 @@ class CmsComponentSettingsService extends AbstractCmsService
         return ['id' => $arguments['component'], 'class' => get_class($component), 'settings' => $values];
     }
 
+    public function settingsUpdate(array $arguments): array
+    {
+        if (!\Yii::$app->user->id) {
+            throw new Exception('OAuth CMS user is required.');
+        }
+
+        $component = $this->resolveComponent($arguments['component']);
+        if (!$component instanceof CmsComponent) {
+            throw new Exception('Only SkeekS CMS components support settings updates.');
+        }
+
+        $site = $this->findSite($arguments);
+        $attributes = (array)($arguments['attributes'] ?? []);
+        if (!$attributes) {
+            throw new Exception('attributes must contain at least one setting.');
+        }
+        if (strlen(json_encode($attributes)) > 1048576) {
+            throw new Exception('Component settings payload is too large.');
+        }
+
+        $component->cmsSite = $site;
+        $component->refresh();
+
+        $allowed = $component->safeAttributes();
+        $unknown = array_values(array_diff(array_keys($attributes), $allowed));
+        if ($unknown) {
+            throw new Exception('Unknown or read-only component settings: '.implode(', ', $unknown));
+        }
+
+        $component->setAttributes($attributes);
+        $component->setOverride(CmsComponent::OVERRIDE_SITE);
+        if (!$component->save(true, array_keys($attributes))) {
+            throw new Exception('Component settings validation failed: '.$this->errorsArray($component->errors));
+        }
+        $component->refresh();
+
+        $values = [];
+        foreach ($component->safeAttributes() as $attribute) {
+            $values[$attribute] = $component->getAttribute($attribute);
+        }
+
+        return [
+            'id' => $arguments['component'],
+            'class' => get_class($component),
+            'cms_site_id' => (int)$site->id,
+            'changed_settings' => array_keys($attributes),
+            'effective_settings' => $values,
+        ];
+    }
+
     protected function resolveComponent(string $id)
     {
         if (\Yii::$app->has($id)) {

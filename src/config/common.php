@@ -1,7 +1,7 @@
 <?php
 
 $scopes = [
-    'cms.site.read', 'cms.site.write', 'cms.site_contact.read', 'cms.site_contact.write', 'cms.theme.read', 'cms.settings.read',
+    'cms.site.read', 'cms.site.write', 'cms.site_contact.read', 'cms.site_contact.write', 'cms.theme.read', 'cms.theme.write', 'cms.settings.read', 'cms.settings.write',
     'cms.tree.read', 'cms.tree.write',
     'cms.content.read', 'cms.content.write',
     'cms.storage.read', 'cms.storage.write',

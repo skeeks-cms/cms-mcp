@@ -39,10 +39,19 @@ class CoreToolProvider extends Component implements McpToolProviderInterface
             $this->tool('cms_theme_list', 'Список тем сайта и их настроек.', 'cms.theme.read', [$site, 'themeList'], $this->siteSchema()),
             $this->tool('cms_theme_get', 'Карточка темы и эффективная конфигурация.', 'cms.theme.read', [$site, 'themeGet'], $this->idSchema()),
             $this->tool('cms_theme_get_active', 'Активная тема выбранного сайта.', 'cms.theme.read', [$site, 'themeActive'], $this->siteSchema()),
+            $this->tool('cms_theme_update', 'Частичное обновление валидируемых настроек темы. Перед записью прочитайте cms_theme_get и передавайте только изменяемые ключи.', 'cms.theme.write', [$site, 'themeUpdate'], $this->objectSchema([
+                'id' => ['type' => 'integer', 'description' => 'cms_theme id'],
+                'config' => ['type' => 'object', 'description' => 'Частичный набор настроек темы. Для Unify: header/footer=custom включают header_custom_html/footer_custom_html.'],
+            ], ['id', 'config'])),
 
             $this->tool('cms_component_settings_list', 'Список настраиваемых компонентов сайта и сохранённых настроек.', 'cms.settings.read', [$settings, 'settingsList'], $this->listSchema(['cms_site_id' => ['type' => 'integer']])),
             $this->tool('cms_component_settings_get', 'Сохранённые настройки компонента.', 'cms.settings.read', [$settings, 'settingsGet'], $this->objectSchema(['component' => ['type' => 'string'], 'cms_site_id' => ['type' => 'integer'], 'user_id' => ['type' => 'integer']], ['component'])),
             $this->tool('cms_component_settings_get_effective', 'Эффективные настройки компонента с учётом CMS overrides.', 'cms.settings.read', [$settings, 'settingsEffective'], $this->objectSchema(['component' => ['type' => 'string'], 'cms_site_id' => ['type' => 'integer'], 'user_id' => ['type' => 'integer']], ['component'])),
+            $this->tool('cms_component_settings_update', 'Частичное обновление site-level настроек SkeekS CMS компонента. Перед записью прочитайте cms_component_settings_get_effective.', 'cms.settings.write', [$settings, 'settingsUpdate'], $this->objectSchema([
+                'component' => ['type' => 'string', 'description' => 'Идентификатор компонента или его PHP-класс; для CmsSeoComponent обычно seo.'],
+                'cms_site_id' => ['type' => 'integer', 'description' => 'Целевой сайт; по умолчанию текущий.'],
+                'attributes' => ['type' => 'object', 'description' => 'Только изменяемые safe-атрибуты. CmsSeoComponent: header_content для head, countersContent для конца body.'],
+            ], ['component', 'attributes'])),
 
             $this->tool('cms_tree_list', 'Список разделов cms_tree с фильтрами.', 'cms.tree.read', [$tree, 'treeList'], $this->listSchema(['cms_site_id' => ['type' => 'integer'], 'pid' => ['type' => 'integer'], 'tree_type_id' => ['type' => 'integer'], 'active' => ['type' => 'string']])),
             $this->tool('cms_tree_get', 'Карточка раздела cms_tree, URL и дополнительные поля.', 'cms.tree.read', [$tree, 'treeGet'], $this->idSchema()),

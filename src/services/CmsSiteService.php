@@ -50,6 +50,51 @@ class CmsSiteService extends AbstractCmsService
         return $this->themeData($theme);
     }
 
+    public function themeUpdate(array $arguments): array
+    {
+        if (!\Yii::$app->user->id) {
+            throw new Exception('OAuth CMS user is required.');
+        }
+
+        $theme = $this->find(CmsTheme::class, $arguments);
+        $config = (array)($arguments['config'] ?? []);
+        if (!$config) {
+            throw new Exception('config must contain at least one setting.');
+        }
+        if (strlen(json_encode($config)) > 1048576) {
+            throw new Exception('Theme config payload is too large.');
+        }
+
+        $object = $theme->objectTheme;
+        if (!$object || !$object->configFormModel) {
+            throw new Exception('Theme does not expose editable configuration.');
+        }
+
+        $model = $object->configFormModel;
+        $allowed = $model->safeAttributes();
+        $unknown = array_values(array_diff(array_keys($config), $allowed));
+        if ($unknown) {
+            throw new Exception('Unknown or read-only theme settings: '.implode(', ', $unknown));
+        }
+
+        $model->setAttributes($config);
+        if (!$model->validate(array_keys($config))) {
+            throw new Exception('Theme config validation failed: '.$this->errorsArray($model->errors));
+        }
+
+        $theme->config = array_merge((array)$theme->config, $model->getAttributes(array_keys($config)));
+        $theme->updated_by = \Yii::$app->user->id;
+        if (!$theme->save()) {
+            throw new Exception('Theme update failed: '.$this->modelErrors($theme));
+        }
+        $theme->refresh();
+
+        return [
+            'theme' => $this->themeData($theme),
+            'changed_settings' => array_keys($config),
+        ];
+    }
+
     public function siteData(CmsSite $site): array
     {
         return array_merge($site->toArray(), [

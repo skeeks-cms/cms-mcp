@@ -186,8 +186,8 @@ The executable sources of truth are the providers in `src/tools`, especially
 of truth is MCP `tools/list`.
 
 - Sites: `cms_site_list`, `cms_site_get`, `cms_site_context_get`.
-- Themes: `cms_theme_list`, `cms_theme_get`, `cms_theme_get_active`.
-- Settings: `cms_component_settings_list`, `cms_component_settings_get`, `cms_component_settings_get_effective`.
+- Themes: `cms_theme_list`, `cms_theme_get`, `cms_theme_get_active`, `cms_theme_update`.
+- Settings: `cms_component_settings_list`, `cms_component_settings_get`, `cms_component_settings_get_effective`, `cms_component_settings_update`.
 - Tree: `cms_tree_list`, `cms_tree_get`, `cms_tree_resolve`, `cms_tree_create`, `cms_tree_update`, `cms_tree_validate`.
 - Tree types: `cms_tree_type_list`, `cms_tree_type_get`, `cms_tree_type_property_list`.
 - Content: `cms_content_type_list`, `cms_content_type_get`, `cms_content_list`, `cms_content_get`, compact `cms_content_property_list`, targeted `cms_content_property_get` and paginated `cms_content_property_enum_list`.
