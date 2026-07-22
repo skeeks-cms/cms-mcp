@@ -1,8 +1,13 @@
 # SkeekS CMS MCP
 
 Extensible MCP server at `/cms/mcp` for sites, themes, settings, pages,
-content elements, storage files and CRM tasks. Destructive tools are deliberately
+content elements, storage files, public SEO landing filters and CRM tasks. Destructive tools are deliberately
 not provided.
+
+When `skeeks/cms-module-form2` is installed, the same API can create and edit
+dynamic forms, fields and list options, read complete form schemas, reorder
+fields, process submissions and aggregate submission statistics. The provider
+is optional and contributes no tools on projects without Form2.
 
 The same tool registry is available through a REST adapter under
 `/cms/rest-api`. It uses its own OAuth protected resource, checks the same
@@ -55,6 +60,7 @@ download the tool catalog before known operations:
 & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-api.ps1' -Operation task.mine.active -Limit 20
 & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-api.ps1' -Site 'example.com' -Operation product.resolve -Code 'sku-100'
 & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-api.ps1' -Site 'example.com' -Operation store-product.resolve -StoreId 1 -ProductId 100
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File '.\scripts\skeeks-api.ps1' -Site 'example.com' -Operation form.search -Query 'Обратная связь'
 ```
 
 If a direct call fails because a tool or argument changed, the client reads
@@ -70,6 +76,29 @@ uploads remain a separate operation and scope. Content property discovery is
 compact and paginated; fetch one heavy component configuration through
 `cms_content_property_get` and enum values through
 `cms_content_property_enum_list`.
+
+`cms_saved_filter_*` manages the public SEO landing pages shown in
+`/cms/admin-cms-saved-filter`; these are not personal admin-grid presets. Each
+record belongs to a site and section and uses exactly one selector: a content
+element, a property enum value, a shop brand or a country. The service validates
+the selector and its property, prevents exact duplicates, exposes the public
+URL, and supports list/get/resolve/create/update/validate without deletion.
+
+Site identity and contacts use table-oriented tools. `cms_site_info_get` and
+`cms_site_update` read or change the current site's name, logo, favicon and
+work schedule; upload images through `cms_storage_file_upload` first.
+`cms_site_phone_*`, `cms_site_email_*`, `cms_site_address_*`,
+`cms_site_social_*` and `cms_site_domain_*` provide list/get/create/update
+operations scoped to the selected site. Use `cms_site_social_type_list` before
+choosing a social type. Setting `is_main` on a domain makes it the site's main
+domain. No contact or domain delete tools are exposed.
+
+For dynamic forms, first call `form2_form_property_component_list`, then either
+assemble the form incrementally or use `form2_form_create_full` to create the
+form, fields and enum options atomically. Read the result through
+`form2_form_schema_get`. Submission tools deliberately omit saved server,
+session, cookie and raw request dumps; updates are limited to status and the
+manager comment.
 
 Project-specific tools are registered in application configuration:
 

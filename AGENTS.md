@@ -117,7 +117,9 @@ not in cache.
 For stable core operations, use the direct-first path. The canonical
 `scripts/skeeks-api.ps1` maps compact operations such as `company.search`,
 `task.mine.active`, `product.resolve`, `store-product.resolve` and
-`site.context` directly to their existing tools. Do not
+`site.context`, `site.info`, plus `form.search`, `form.schema`, `form.submissions`,
+`saved-filter.search` and `saved-filter.get`,
+directly to their existing tools. Do not
 read `/tools`, inspect the credential store or call context before these known
 operations. Fetch `tools/{name}` only after the direct call reports an unknown
 tool or invalid arguments. Every REST execution response exposes
@@ -157,7 +159,9 @@ Retry with the returned confirmation flag only after explicit approval.
 - `CmsTreeService`: sections, section types, properties, drafts and publication.
 - `CmsContentElementService`: content types, publications and properties.
 - `CmsStorageFileService`: file lookup and multipart, URL or base64 upload.
-- `CmsSiteContactService`: site information, phones, emails, addresses and social links.
+- `CmsSavedFilterService`: public SEO filter pages, exact selector resolution,
+  consistency validation and duplicate-safe creation.
+- `CmsSiteContactService`: site information, phones, emails, addresses, social links and domains.
 - `CmsCompanyService`: companies, duplicate checks, contacts, statuses, categories and statistics.
 - `CmsDealService`: deals, deal types and statistics.
 - `CmsContractorService`: contractor details and relations.
@@ -174,6 +178,8 @@ Retry with the returned confirmation flag only after explicit approval.
 - `ShopStoreService`: stores, warehouses, suppliers (`ShopStore.is_supplier=1`) and `ShopStoreProduct` positions.
 - `ShopStoreMovementService`: inventory documents and movement rows; the only MCP path that changes stock quantity.
 - `ShopCatalogReferenceService`: brands, collections and collection stickers.
+- `Form2Service`: optional `skeeks/cms-module-form2` forms, dynamic fields,
+  enum values, safe submission management and statistics.
 - `AbstractCmsService`: common lookup, pagination, property and validation helpers.
 
 `CoreToolProvider` must not query models, save records or open transactions.
@@ -193,11 +199,24 @@ of truth is MCP `tools/list`.
 - Content: `cms_content_type_list`, `cms_content_type_get`, `cms_content_list`, `cms_content_get`, compact `cms_content_property_list`, targeted `cms_content_property_get` and paginated `cms_content_property_enum_list`.
 - Elements: `cms_content_element_list`, `cms_content_element_get`, `cms_content_element_create`, `cms_content_element_update`, `cms_content_element_validate`.
 - Files: `cms_storage_file_list`, `cms_storage_file_get`, `cms_storage_file_upload`.
+- Saved SEO filters: `cms_saved_filter_list`, `cms_saved_filter_get`,
+  `cms_saved_filter_resolve`, `cms_saved_filter_create`,
+  `cms_saved_filter_update`, `cms_saved_filter_validate`.
+
+`cms_saved_filter` records are public SEO landing pages from
+`/cms/admin-cms-saved-filter`, not private grid presets. A record belongs to one
+site and section and must contain exactly one selector: content element,
+property enum, shop brand or country. Content element and enum selectors also
+require a matching `cms_content_property_id`. Resolve the section, property and
+value first; upload an optional image separately; validate before writing. The
+create tool is idempotent for an exact section/selector duplicate and returns
+the existing record. There is no delete tool.
 
 `CrmToolProvider` is the source of truth for CRM tools. It exposes table-oriented
 `*_list`, `*_get`, `*_create`, `*_update` and selected `*_stats` tools for:
 
-- `cms_site_phone`, `cms_site_email`, `cms_site_address`, `cms_site_social`;
+- `cms_site`, `cms_site_phone`, `cms_site_email`, `cms_site_address`,
+  `cms_site_social`, its social-type reference and `cms_site_domain`;
 - `cms_company`, its contacts, statuses and categories;
 - `cms_user`, `cms_worker`, `cms_deal`, `cms_deal_type`, `cms_contractor`, `cms_project`;
 - `cms_task`, `cms_task_schedule`, `cms_user_schedule`;
@@ -213,6 +232,21 @@ metadata. Starting a call or sending an SMS is an external side effect and must
 first return `requires_confirmation`; retry with `confirm=true` only after the
 user explicitly confirms. Never serialize provider configs, SIP/ICE settings,
 tokens, passwords or other credentials.
+
+`Form2ToolProvider` is optional and returns no tools when
+`skeeks/cms-module-form2` is not installed. When available it exposes:
+
+- `form2_form` list/get/create/update, atomic `create_full` and `schema_get`;
+- the installed property component catalog;
+- `form2_form_property` and `form2_form_property_enum` list/get/create/update
+  and full-order reorder operations;
+- safe `form2_form_send` list/get/update/status/statistics operations.
+
+There are no Form2 delete tools. Read the property component catalog before
+creating fields, use enum values only with list components, and send the full
+current ID sequence when reordering. Submission updates can change only status
+and manager comment; processing identity comes from OAuth. Never return the
+stored server, session, cookie or raw request dumps from `form2_form_send`.
 
 `ShopToolProvider` exposes product, sales and inventory tools for:
 
@@ -258,6 +292,15 @@ name a different `executor_id`, but its creator remains the OAuth user.
 Bearer authentication is stateless: establish the CMS identity with
 `Yii::$app->user->setIdentity()` and never call `login()`, start a PHP session
 or regenerate a session id from the MCP controller.
+
+For `/cms/admin-cms-site-info`, use `cms_site_info_get` and `cms_site_update`.
+The editable fields are `name`, `image_id`, `favicon_storage_file_id` and
+`work_time`; upload logo/favicon through storage first. Site-contact and domain
+lists default to the current site, and get/update cannot cross to another site
+unless that site is explicitly selected. Domain creation and update validate a
+bare hostname; `is_main=true` demotes the previous main domain. Use
+`cms_site_social_type_list` before creating social links. There are no delete
+tools for site contacts or domains.
 
 ## API observability
 
@@ -383,6 +426,8 @@ Shop replacement properties live on `ShopToolProvider`: `productServiceConfig`,
 Activity and communication replacement properties are `activityServiceConfig`
 on `ActivityToolProvider` and `communicationServiceConfig` on
 `CommunicationToolProvider`.
+Form2 replacement uses `serviceConfig` on `Form2ToolProvider`.
+Saved-filter replacement uses `serviceConfig` on `SavedFilterToolProvider`.
 Register new OAuth scopes on the MCP resource.
 
 When the package adds scopes, existing access tokens intentionally keep their

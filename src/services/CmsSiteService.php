@@ -100,7 +100,28 @@ class CmsSiteService extends AbstractCmsService
         return array_merge($site->toArray(), [
             'url' => $site->url,
             'root_tree_id' => $site->rootCmsTree ? (int)$site->rootCmsTree->id : null,
+            'logo' => $this->fileData($site->image),
+            'favicon' => $this->fileData($site->favicon),
+            'main_domain' => $site->cmsSiteMainDomain ? [
+                'id' => (int)$site->cmsSiteMainDomain->id,
+                'domain' => $site->cmsSiteMainDomain->domain,
+                'is_https' => (bool)$site->cmsSiteMainDomain->is_https,
+                'url' => $site->cmsSiteMainDomain->url,
+            ] : null,
         ]);
+    }
+
+    protected function fileData($file): ?array
+    {
+        if (!$file) {
+            return null;
+        }
+        return [
+            'id' => (int)$file->id,
+            'name' => $file->name,
+            'src' => $file->src,
+            'absolute_src' => $file->absoluteSrc,
+        ];
     }
 
     public function themeData(CmsTheme $theme): array

@@ -43,11 +43,14 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
         $workTime = \Yii::createObject($this->workTimeServiceConfig);
 
         $tools = [];
-        $tools[] = $this->tool('cms_site_update', 'Редактирование основной информации cms_site.', 'cms.site.write', [$site, 'siteUpdate'], $this->mutation(['id']));
-        $tools = array_merge($tools, $this->crud('cms_site_phone', 'телефона сайта', 'cms.site_contact', $site, 'phone'));
-        $tools = array_merge($tools, $this->crud('cms_site_email', 'email сайта', 'cms.site_contact', $site, 'email'));
-        $tools = array_merge($tools, $this->crud('cms_site_address', 'адреса сайта', 'cms.site_contact', $site, 'address'));
-        $tools = array_merge($tools, $this->crud('cms_site_social', 'социальной ссылки сайта', 'cms.site_contact', $site, 'social'));
+        $tools[] = $this->tool('cms_site_info_get', 'Общая информация текущего или выбранного cms_site из admin-cms-site-info: название, логотип, favicon, рабочее время и основной домен.', 'cms.site.read', [$site, 'siteInfoGet'], $this->siteSelectorSchema());
+        $tools[] = $this->tool('cms_site_update', 'Изменение названия, логотипа, favicon и рабочего времени cms_site. Сначала загрузите изображения и передайте ID файлов.', 'cms.site.write', [$site, 'siteUpdate'], $this->siteUpdateSchema());
+        $tools = array_merge($tools, $this->crud('cms_site_phone', 'телефона сайта', 'cms.site_contact', $site, 'phone', null, $this->siteContactSchemas('phone')));
+        $tools = array_merge($tools, $this->crud('cms_site_email', 'email сайта', 'cms.site_contact', $site, 'email', null, $this->siteContactSchemas('email')));
+        $tools = array_merge($tools, $this->crud('cms_site_address', 'адреса сайта', 'cms.site_contact', $site, 'address', null, $this->siteContactSchemas('address')));
+        $tools = array_merge($tools, $this->crud('cms_site_social', 'социальной ссылки сайта', 'cms.site_contact', $site, 'social', null, $this->siteContactSchemas('social')));
+        $tools[] = $this->tool('cms_site_social_type_list', 'Справочник допустимых значений social_type для cms_site_social.', 'cms.site_contact.read', [$site, 'socialTypeList'], $this->object());
+        $tools = array_merge($tools, $this->crud('cms_site_domain', 'домена сайта', 'cms.site', $site, 'domain', null, $this->siteContactSchemas('domain')));
 
         $tools = array_merge($tools, $this->crud('cms_company', 'компании', 'cms.company', $company, 'company', 'companyStats', ['list' => $this->companyListSchema(), 'update' => $this->companyUpdateSchema(), 'stats' => $this->companyStatsSchema()]));
         $tools[] = $this->tool('cms_company_duplicate_check', 'Проверка возможных дублей компании по названию, телефону, email и ИНН. Вызывать перед созданием.', 'cms.company.read', [$company, 'duplicateCheck'], $this->object(['name' => ['type' => 'string'], 'phone' => ['type' => 'string'], 'email' => ['type' => 'string'], 'inn' => ['type' => 'string']]));
@@ -102,7 +105,7 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
         if ($prefix === 'cms_company') { $updateDescription .= ' category_ids и manager_ids полностью заменяют соответствующие связи; пустой массив очищает их.'; }
         $result = [
             $this->tool($prefix.'_list', 'Список, поиск и фильтрация '.$label.'.', $scope.'.read', [$service, $methodPrefix.'List'], $schemas['list'] ?? $this->listSchema()),
-            $this->tool($prefix.'_get', 'Получение '.$label.' по id.', $scope.'.read', [$service, $methodPrefix.'Get'], $this->idSchema()),
+            $this->tool($prefix.'_get', 'Получение '.$label.' по id.', $scope.'.read', [$service, $methodPrefix.'Get'], $schemas['get'] ?? $this->idSchema()),
             $this->tool($prefix.'_create', $createDescription, $scope.'.write', [$service, $methodPrefix.'Create'], $schemas['create'] ?? $this->mutation()),
             $this->tool($prefix.'_update', $updateDescription, $scope.'.write', [$service, $methodPrefix.'Update'], $schemas['update'] ?? $this->mutation(['id'])),
         ];
@@ -121,6 +124,35 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
     protected function companyStatsSchema(): array { $schema = $this->companyListSchema(); unset($schema['properties']['sort_by'], $schema['properties']['sort_direction'], $schema['properties']['limit'], $schema['properties']['offset']); $schema['properties']['group_by'] = ['type' => 'string', 'enum' => ['status', 'type']]; return $schema; }
     protected function taskListSchema(): array { return $this->object(['q' => ['type' => 'string', 'description' => 'Поиск только по названию и описанию задачи. Для автора используйте created_by.'], 'status' => ['type' => ['string', 'integer', 'array']], 'executor_id' => ['type' => 'integer'], 'created_by' => ['type' => 'integer', 'description' => 'ID автора задачи из cms_user/cms_worker_list.'], 'updated_by' => ['type' => 'integer'], 'cms_project_id' => ['type' => 'integer'], 'cms_company_id' => ['type' => 'integer'], 'cms_user_id' => ['type' => 'integer'], 'parent_cms_task_id' => ['type' => 'integer'], 'named_filters' => ['type' => 'array', 'items' => ['type' => 'string', 'enum' => ['mine', 'active', 'overdue']]], 'date_from' => ['type' => ['string', 'integer'], 'description' => 'Начало диапазона plan_start_at.'], 'date_to' => ['type' => ['string', 'integer'], 'description' => 'Конец диапазона plan_start_at.'], 'sort_by' => ['type' => 'string', 'enum' => ['id', 'created_at', 'plan_start_at', 'plan_end_at', 'executor_sort', 'status']], 'sort_direction' => ['type' => 'string', 'enum' => ['asc', 'desc']], 'limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 100], 'offset' => ['type' => 'integer', 'minimum' => 0]]); }
     protected function taskStatsSchema(): array { return $this->object(['group_by' => ['type' => 'string', 'enum' => ['status', 'executor', 'project', 'company']], 'metric' => ['type' => 'string', 'enum' => ['count', 'plan_duration', 'fact_duration']], 'status' => ['type' => ['string', 'integer', 'array']], 'executor_id' => ['type' => 'integer'], 'created_by' => ['type' => 'integer'], 'updated_by' => ['type' => 'integer'], 'cms_project_id' => ['type' => 'integer'], 'cms_company_id' => ['type' => 'integer'], 'cms_user_id' => ['type' => 'integer'], 'named_filters' => ['type' => 'array', 'items' => ['type' => 'string', 'enum' => ['mine', 'active', 'overdue']]], 'date_from' => ['type' => ['string', 'integer'], 'description' => 'Начало диапазона created_at.'], 'date_to' => ['type' => ['string', 'integer'], 'description' => 'Конец диапазона created_at.']]); }
+    protected function siteSelectorSchema(): array { return $this->object(['id' => ['type' => 'integer', 'description' => 'ID cms_site; по умолчанию текущий сайт.'], 'cms_site_id' => ['type' => 'integer', 'description' => 'Альтернативное имя ID cms_site.']]); }
+    protected function siteUpdateSchema(): array { return $this->object(['id' => ['type' => 'integer', 'description' => 'ID cms_site; по умолчанию текущий сайт.'], 'cms_site_id' => ['type' => 'integer'], 'name' => ['type' => 'string'], 'image_id' => ['type' => ['integer', 'null'], 'description' => 'ID загруженного логотипа из cms_storage_file_upload.'], 'favicon_storage_file_id' => ['type' => ['integer', 'null'], 'description' => 'ID загруженного favicon из cms_storage_file_upload.'], 'work_time' => ['type' => ['object', 'array', 'string', 'null']], 'attributes' => ['type' => 'object']]); }
+    protected function siteContactSchemas(string $kind): array
+    {
+        $list = ['cms_site_id' => ['type' => 'integer', 'description' => 'По умолчанию текущий сайт.'], 'id' => ['type' => ['integer', 'array'], 'items' => ['type' => 'integer']], 'q' => ['type' => 'string'], 'limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 100], 'offset' => ['type' => 'integer', 'minimum' => 0]];
+        $properties = ['id' => ['type' => 'integer'], 'cms_site_id' => ['type' => 'integer', 'description' => 'По умолчанию текущий сайт.'], 'attributes' => ['type' => 'object']];
+        $required = [];
+        if ($kind === 'phone' || $kind === 'email') {
+            $properties += ['value' => ['type' => 'string'], 'name' => ['type' => ['string', 'null']], 'priority' => ['type' => 'integer']];
+            $required = ['value'];
+        } elseif ($kind === 'address') {
+            $properties += ['value' => ['type' => 'string'], 'name' => ['type' => ['string', 'null']], 'latitude' => ['type' => 'number'], 'longitude' => ['type' => 'number'], 'work_time' => ['type' => ['object', 'array', 'string', 'null']], 'cms_image_id' => ['type' => ['integer', 'null']], 'priority' => ['type' => 'integer']];
+            $required = ['value', 'latitude', 'longitude'];
+        } elseif ($kind === 'social') {
+            $properties += ['social_type' => ['type' => 'string', 'description' => 'Получите допустимые значения через cms_site_social_type_list.'], 'url' => ['type' => 'string'], 'name' => ['type' => ['string', 'null']], 'priority' => ['type' => 'integer']];
+            $list['social_type'] = ['type' => ['string', 'array'], 'items' => ['type' => 'string']];
+            $required = ['social_type', 'url'];
+        } elseif ($kind === 'domain') {
+            $properties += ['domain' => ['type' => 'string', 'description' => 'Имя хоста без схемы и пути.'], 'is_main' => ['type' => ['boolean', 'integer'], 'description' => 'Установка нового основного домена снимает флаг с предыдущего.'], 'is_https' => ['type' => ['boolean', 'integer']]];
+            $list += ['domain' => ['type' => 'string'], 'is_main' => ['type' => ['boolean', 'integer']], 'is_https' => ['type' => ['boolean', 'integer']]];
+            $required = ['domain'];
+        }
+        return [
+            'list' => $this->object($list),
+            'get' => $this->object(['id' => ['type' => 'integer'], 'cms_site_id' => ['type' => 'integer']], ['id']),
+            'create' => $this->object($properties, $required),
+            'update' => $this->object($properties, ['id']),
+        ];
+    }
     protected function mutation(array $required = []): array { return $this->object(['id' => ['type' => 'integer'], 'attributes' => ['type' => 'object'], 'name' => ['type' => 'string'], 'description' => ['type' => 'string'], 'cms_site_id' => ['type' => 'integer'], 'cms_company_id' => ['type' => 'integer'], 'cms_user_id' => ['type' => 'integer'], 'cms_project_id' => ['type' => 'integer'], 'executor_id' => ['type' => 'integer'], 'status' => ['type' => ['string', 'integer']], 'date_from' => ['type' => ['string', 'integer']], 'date_to' => ['type' => ['string', 'integer']], 'shop_bill_id' => ['type' => 'integer'], 'shop_document_id' => ['type' => 'integer'], 'shop_product_id' => ['type' => 'integer'], 'source_shop_bill_id' => ['type' => 'integer'], 'source_shop_bill_item_id' => ['type' => 'integer'], 'measure_name' => ['type' => 'string'], 'quantity' => ['type' => 'number'], 'price' => ['type' => 'number'], 'discount_amount' => ['type' => 'number'], 'discount_value' => ['type' => 'string'], 'discount_name' => ['type' => 'string'], 'currency_code' => ['type' => 'string'], 'vat_name' => ['type' => 'string'], 'sort' => ['type' => 'integer'], 'items' => ['type' => 'array', 'items' => ['type' => 'object']]], $required); }
     protected function statsSchema(): array { return $this->object(['group_by' => ['type' => 'string'], 'metric' => ['type' => 'string'], 'filters' => ['type' => 'object'], 'named_filters' => ['type' => 'array', 'items' => ['type' => 'string']], 'date_from' => ['type' => ['string', 'integer']], 'date_to' => ['type' => ['string', 'integer']]]); }
     protected function companyFullSchema(): array { return $this->object(['name' => ['type' => 'string'], 'description' => ['type' => 'string'], 'cms_company_status_id' => ['type' => 'integer'], 'category_ids' => ['type' => 'array', 'items' => ['type' => 'integer']], 'manager_ids' => ['type' => 'array', 'items' => ['type' => 'integer']], 'phones' => ['type' => 'array', 'items' => ['type' => 'object']], 'emails' => ['type' => 'array', 'items' => ['type' => 'object']], 'addresses' => ['type' => 'array', 'items' => ['type' => 'object']], 'links' => ['type' => 'array', 'items' => ['type' => 'object']], 'allow_duplicate' => ['type' => 'boolean']], ['name']); }

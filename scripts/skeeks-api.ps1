@@ -12,8 +12,14 @@ param(
         'task.search',
         'task.day',
         'site.context',
+        'site.info',
         'tree.list',
         'content.list',
+        'saved-filter.search',
+        'saved-filter.get',
+        'form.search',
+        'form.schema',
+        'form.submissions',
         'product.resolve',
         'store-product.resolve',
         'tool.call'
@@ -45,6 +51,13 @@ param(
     [int]$ParentId,
 
     [int]$ContentId,
+
+    [int]$TreeId,
+
+    [int]$FormId,
+
+    [ValidateSet(-1, 0, 5, 10)]
+    [int]$Status = -1,
 
     [string]$Code,
 
@@ -151,8 +164,14 @@ $operations = [ordered]@{
     'task.search' = 'Search and filter CRM tasks.'
     'task.day' = 'List tasks for a day; defaults to the OAuth user.'
     'site.context' = 'Read the current site, root and active theme context.'
+    'site.info' = 'Read the current site name, logo, favicon, work schedule and main domain.'
     'tree.list' = 'List site sections, optionally below a parent.'
     'content.list' = 'List content elements by content or tree.'
+    'saved-filter.search' = 'Search public SEO landing filters from cms_saved_filter on the current site.'
+    'saved-filter.get' = 'Read one public SEO landing filter by id.'
+    'form.search' = 'Search dynamic Form2 forms on the current site.'
+    'form.schema' = 'Read one complete Form2 schema by form id.'
+    'form.submissions' = 'List Form2 submissions, optionally by form and status.'
     'product.resolve' = 'Resolve one product by exact id, code, brand SKU or barcode without catalog pagination.'
     'store-product.resolve' = 'Resolve one store position by store and product or external id.'
     'tool.call' = 'Call a known tool directly with base64-encoded JSON arguments.'
@@ -227,6 +246,11 @@ switch ($Operation) {
     'site.context' {
         $tool = 'cms_site_context_get'
     }
+    'site.info' {
+        $tool = 'cms_site_info_get'
+        $arguments = @{}
+        Add-PositiveArgument $arguments 'id' $Id
+    }
     'tree.list' {
         $tool = 'cms_tree_list'
         $arguments = @{ limit = $Limit }
@@ -237,6 +261,34 @@ switch ($Operation) {
         $arguments = @{ limit = $Limit }
         Add-PositiveArgument $arguments 'content_id' $ContentId
         Add-PositiveArgument $arguments 'tree_id' $ParentId
+    }
+    'saved-filter.search' {
+        $tool = 'cms_saved_filter_list'
+        $arguments = @{ limit = $Limit }
+        if ($Query) { $arguments['q'] = $Query }
+        Add-PositiveArgument $arguments 'cms_tree_id' $TreeId
+    }
+    'saved-filter.get' {
+        Require-Id
+        $tool = 'cms_saved_filter_get'
+        $arguments = @{ id = $Id }
+    }
+    'form.search' {
+        Require-Query
+        $tool = 'form2_form_list'
+        $arguments = @{ q = $Query; limit = $Limit }
+    }
+    'form.schema' {
+        Require-Id
+        $tool = 'form2_form_schema_get'
+        $arguments = @{ id = $Id }
+    }
+    'form.submissions' {
+        $tool = 'form2_form_send_list'
+        $arguments = @{ limit = $Limit }
+        Add-PositiveArgument $arguments 'form_id' $FormId
+        if ($Status -ge 0) { $arguments['status'] = $Status }
+        if ($Query) { $arguments['q'] = $Query }
     }
     'product.resolve' {
         $tool = 'shop_product_resolve'
@@ -280,7 +332,7 @@ if ($Operation -ne 'tool.call') {
 $restClient = Join-Path $PSScriptRoot 'skeeks-rest.ps1'
 try {
     $rawResult = & $restClient -Site $Site -Action execute -ToolName $tool -ArgumentsBase64 $ArgumentsBase64
-    if ($Full -or $Operation -in @('company.get', 'tool.call')) {
+    if ($Full -or $Operation -in @('company.get', 'saved-filter.get', 'tool.call')) {
         $rawResult
         exit 0
     }
@@ -296,6 +348,9 @@ try {
         'task.day' { @('id', 'name', 'status', 'status_text', 'plan_start_at', 'plan_end_at', 'plan_duration', 'fact_duration', 'executor_sort', 'created_by_user', 'executor_user', 'cms_project_ref', 'cms_company_ref') }
         'tree.list' { @('id', 'pid', 'name', 'code', 'tree_type_id', 'active', 'published', 'url') }
         'content.list' { @('id', 'name', 'content_id', 'tree_id', 'active', 'published', 'created_at', 'url') }
+        'saved-filter.search' { @('id', 'cms_site_id', 'cms_tree_id', 'short_name', 'code', 'priority', 'selector_type', 'selector_value', 'tree', 'property', 'value_enum', 'value_element', 'brand', 'country', 'url') }
+        'form.search' { @('id', 'cms_site_id', 'name', 'code', 'description', 'emails', 'is_add_legal_checkbox', 'updated_at') }
+        'form.submissions' { @('id', 'form', 'status', 'status_name', 'created_at', 'processed_by', 'processed_at', 'emails', 'phones', 'page_url', 'comment') }
         default { $null }
     }
 
@@ -313,6 +368,9 @@ try {
             active_theme = Select-CompactFields $data['active_theme'] @('id', 'name', 'theme_name', 'theme_description', 'is_active')
             response_mode = 'compact'
         }
+    } elseif ($Operation -eq 'site.info' -and $data -is [Collections.IDictionary]) {
+        $result['response']['data'] = Select-CompactFields $data @('id', 'name', 'work_time', 'image_id', 'favicon_storage_file_id', 'logo', 'favicon', 'main_domain', 'url')
+        $result['response']['data']['response_mode'] = 'compact'
     }
 
     $result | ConvertTo-Json -Depth 30
