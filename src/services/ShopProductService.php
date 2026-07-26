@@ -6,6 +6,7 @@ use skeeks\cms\models\CmsContent;
 use skeeks\cms\shop\models\ShopCmsContentElement;
 use skeeks\cms\shop\models\ShopProduct;
 use skeeks\cms\shop\models\ShopProductBarcode;
+use skeeks\cms\shop\models\ShopProductModel;
 use yii\base\Exception;
 
 class ShopProductService extends AbstractCmsService
@@ -115,6 +116,94 @@ class ShopProductService extends AbstractCmsService
         $validProduct = $product->validate();
         $propertyErrors = $this->validateProperties($element, $a);
         return ['valid' => $validElement && $validProduct && !$propertyErrors, 'element_errors' => $element->errors, 'product_errors' => $product->errors, 'property_errors' => $propertyErrors];
+    }
+
+    public function productJoinGet(array $arguments): array
+    {
+        $product = $this->find(ShopProduct::class, ['id' => (int)($arguments['product_id'] ?? 0)]);
+        $modelId = (int)$product->shop_product_model_id;
+        $products = $modelId
+            ? ShopProduct::find()->where(['shop_product_model_id' => $modelId])->orderBy(['id' => SORT_ASC])->all()
+            : [$product];
+
+        return [
+            'product_id' => (int)$product->id,
+            'is_joined' => $modelId > 0,
+            'shop_product_model_id' => $modelId ?: null,
+            'items' => array_map([$this, 'productReferenceData'], $products),
+        ];
+    }
+
+    public function productJoin(array $arguments): array
+    {
+        if (!\Yii::$app->user->id) { throw new Exception('OAuth CMS user is required.'); }
+
+        $productIds = array_values(array_unique(array_filter(array_map('intval', (array)($arguments['product_ids'] ?? [])))));
+        if (count($productIds) < 2 || count($productIds) > 100) {
+            throw new Exception('product_ids must contain between 2 and 100 unique product ids.');
+        }
+
+        $products = ShopProduct::find()
+            ->with('cmsContentElement')
+            ->where(['id' => $productIds])
+            ->orderBy(['id' => SORT_ASC])
+            ->all();
+        if (count($products) !== count($productIds)) {
+            $foundIds = array_map(static function (ShopProduct $product) { return (int)$product->id; }, $products);
+            throw new Exception('Some products were not found: '.implode(', ', array_diff($productIds, $foundIds)).'.');
+        }
+
+        $siteIds = [];
+        $contentIds = [];
+        $existingModelIds = [];
+        foreach ($products as $product) {
+            if (!$product->cmsContentElement instanceof ShopCmsContentElement) {
+                throw new Exception('ShopCmsContentElement not found for product #'.$product->id.'.');
+            }
+            $siteIds[(int)$product->cmsContentElement->cms_site_id] = true;
+            $contentIds[(int)$product->cmsContentElement->content_id] = true;
+            if ($product->shop_product_model_id) {
+                $existingModelIds[(int)$product->shop_product_model_id] = true;
+            }
+        }
+        if (count($siteIds) !== 1 || count($contentIds) !== 1) {
+            throw new Exception('Joined products must belong to the same CMS site and content type.');
+        }
+        if (count($existingModelIds) > 1) {
+            throw new Exception('Products already belong to different joined groups; automatic group merging is not allowed.');
+        }
+
+        $transaction = ShopProduct::getDb()->beginTransaction();
+        try {
+            $modelId = $existingModelIds ? (int)array_key_first($existingModelIds) : 0;
+            if (!$modelId) {
+                $model = new ShopProductModel();
+                if (!$model->save()) {
+                    throw new Exception('Product model creation failed: '.$this->modelErrors($model));
+                }
+                $modelId = (int)$model->id;
+            }
+
+            foreach ($products as $product) {
+                if ((int)$product->shop_product_model_id === $modelId) { continue; }
+                $product->shop_product_model_id = $modelId;
+                if (!$product->save(false, ['shop_product_model_id'])) {
+                    throw new Exception('Joining product #'.$product->id.' failed: '.$this->modelErrors($product));
+                }
+                $element = $product->cmsContentElement;
+                $element->updated_at = time();
+                if (!$element->update(false, ['updated_at'])) {
+                    throw new Exception('Updating product element #'.$element->id.' failed.');
+                }
+            }
+
+            $transaction->commit();
+        } catch (\Throwable $e) {
+            $transaction->rollBack();
+            throw $e;
+        }
+
+        return $this->productJoinGet(['product_id' => $productIds[0]]);
     }
 
     protected function createProductElement(CmsContent $content): ShopCmsContentElement

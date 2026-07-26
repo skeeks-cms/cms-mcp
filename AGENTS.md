@@ -251,6 +251,8 @@ stored server, session, cookie or raw request dumps from `form2_form_send`.
 `ShopToolProvider` exposes product, sales and inventory tools for:
 
 - `shop_product` together with its `ShopCmsContentElement` card;
+- joined product-model groups through `shop_product_join_get` and
+  `shop_product_join`; distinct existing groups are never merged automatically;
 - `shop_product_price`, `shop_type_price`, read-only price history,
   `shop_vat` and `cms_measure`;
 - `shop_order`, `shop_order_item`, `shop_order_status`;
