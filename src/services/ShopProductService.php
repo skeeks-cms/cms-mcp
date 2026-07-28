@@ -11,14 +11,14 @@ use yii\base\Exception;
 
 class ShopProductService extends AbstractCmsService
 {
-    protected $elementWritable = ['name', 'code', 'content_id', 'tree_id', 'treeIds', 'cms_site_id', 'description_short', 'description_full', 'description_short_type', 'description_full_type', 'seo_h1', 'meta_title', 'meta_description', 'meta_keywords', 'priority', 'published_at', 'published_to', 'parent_content_element_id', 'image_id', 'image_full_id'];
+    protected $elementWritable = ['name', 'code', 'content_id', 'tree_id', 'treeIds', 'cms_site_id', 'description_short', 'description_full', 'description_short_type', 'description_full_type', 'seo_h1', 'meta_title', 'meta_description', 'meta_keywords', 'priority', 'published_at', 'published_to', 'parent_content_element_id', 'image_id', 'image_full_id', 'external_id'];
     protected $productWritable = ['weight', 'width', 'length', 'height', 'measure_ratio', 'measure_ratio_min', 'vat_id', 'vat_included', 'measure_code', 'brand_id', 'brand_sku', 'country_alpha2', 'expiration_time', 'expiration_time_comment', 'service_life_time', 'service_life_time_comment', 'warranty_time', 'warranty_time_comment', 'offers_pid', 'product_type', 'shop_product_model_id', 'baseProductPriceValue', 'baseProductPriceCurrency', 'barcodes', 'collections'];
 
     public function productList(array $a): array
     {
         $q = ShopProduct::find()->joinWith('cmsContentElement element');
         $this->applyFilters($q, ShopProduct::class, $a, ['id', 'brand_id', 'brand_sku', 'product_type', 'measure_code', 'country_alpha2', 'offers_pid']);
-        foreach (['content_id', 'tree_id', 'cms_site_id', 'active'] as $field) {
+        foreach (['content_id', 'tree_id', 'cms_site_id', 'active', 'external_id'] as $field) {
             $filters = array_merge((array)($a['filters'] ?? []), $a);
             if (!isset($filters[$field]) || $filters[$field] === '') { continue; }
             $value = $filters[$field];
@@ -26,7 +26,7 @@ class ShopProductService extends AbstractCmsService
             $q->andWhere(['element.'.$field => $value]);
         }
         if (!empty($a['code'])) { $q->andWhere(['element.code' => (string)$a['code']]); }
-        if (!empty($a['q'])) { $q->andWhere(['or', ['like', 'element.name', $a['q']], ['like', 'element.code', $a['q']], ['like', ShopProduct::tableName().'.brand_sku', $a['q']]]); }
+        if (!empty($a['q'])) { $q->andWhere(['or', ['like', 'element.name', $a['q']], ['like', 'element.code', $a['q']], ['like', 'element.external_id', $a['q']], ['like', ShopProduct::tableName().'.brand_sku', $a['q']]]); }
         return $this->page($q->orderBy([ShopProduct::tableName().'.id' => SORT_DESC]), $a, [$this, 'productData']);
     }
 
@@ -269,14 +269,16 @@ class ShopProductService extends AbstractCmsService
         $identity = array_filter([
             'id' => isset($match['id']) ? (int)$match['id'] : 0,
             'code' => trim((string)($match['code'] ?? '')),
+            'external_id' => trim((string)($match['external_id'] ?? '')),
             'brand_sku' => trim((string)($match['brand_sku'] ?? '')),
             'barcode' => trim((string)($match['barcode'] ?? '')),
         ], static function ($value) { return $value !== '' && $value !== 0; });
-        if (!$identity) { throw new Exception('Provide an exact product match: id, code, brand_sku or barcode.'); }
+        if (!$identity) { throw new Exception('Provide an exact product match: id, code, external_id, brand_sku or barcode.'); }
 
         $query = ShopProduct::find()->joinWith('cmsContentElement element');
         if (!empty($identity['id'])) { $query->andWhere([ShopProduct::tableName().'.id' => $identity['id']]); }
         if (!empty($identity['code'])) { $query->andWhere(['element.code' => $identity['code']]); }
+        if (!empty($identity['external_id'])) { $query->andWhere(['element.external_id' => $identity['external_id']]); }
         if (!empty($identity['brand_sku'])) { $query->andWhere([ShopProduct::tableName().'.brand_sku' => $identity['brand_sku']]); }
         if (!empty($identity['barcode'])) {
             $productIds = ShopProductBarcode::find()->select('shop_product_id')->andWhere(['value' => $identity['barcode']]);
@@ -309,6 +311,7 @@ class ShopProductService extends AbstractCmsService
         return [
             'id' => (int)$product->id,
             'code' => $element ? (string)$element->code : null,
+            'external_id' => $element && $element->external_id !== null ? (string)$element->external_id : null,
             'name' => $element ? (string)$element->name : null,
             'brand_sku' => (string)$product->brand_sku,
             'content_id' => $element ? (int)$element->content_id : null,

@@ -91,7 +91,7 @@ class CmsContentElementService extends AbstractCmsService
     public function elementList(array $arguments): array
     {
         $query = CmsContentElement::find();
-        foreach (['content_id', 'tree_id', 'cms_site_id', 'active'] as $key) {
+        foreach (['content_id', 'tree_id', 'cms_site_id', 'active', 'external_id'] as $key) {
             if (array_key_exists($key, $arguments)) {
                 $query->andWhere([$key => $arguments[$key]]);
             }
@@ -233,7 +233,7 @@ class CmsContentElementService extends AbstractCmsService
             'description_short', 'description_full', 'description_short_type',
             'description_full_type', 'seo_h1', 'meta_title', 'meta_description',
             'meta_keywords', 'priority', 'active', 'published_at', 'published_to',
-            'parent_content_element_id', 'image_id', 'image_full_id',
+            'parent_content_element_id', 'image_id', 'image_full_id', 'external_id',
         ];
     }
 }
