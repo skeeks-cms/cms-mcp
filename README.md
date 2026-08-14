@@ -49,7 +49,8 @@ The login client performs metadata discovery, dynamic client registration,
 PKCE S256, loopback callback handling and DPAPI credential storage. It opens
 the user's default browser and never prints tokens or client secrets. The REST
 client rotates refresh tokens and caches the authorized tool catalog by ETag
-and `tools_revision`.
+and `tools_revision`. Network requests time out after 120 seconds by default;
+use `-RequestTimeoutSeconds <seconds>` to change the limit or `0` to disable it.
 
 For common AI workflows, call the intent-oriented fast client directly. It
 uses `.codex/skeeks.json` from the current project when present and does not

@@ -90,8 +90,15 @@ class CmsSiteService extends AbstractCmsService
         $theme->refresh();
 
         return [
-            'theme' => $this->themeData($theme),
+            'theme' => [
+                'id' => (int)$theme->id,
+                'cms_site_id' => (int)$theme->cms_site_id,
+                'code' => $theme->code,
+                'is_active' => (bool)$theme->is_active,
+                'updated_at' => (int)$theme->updated_at,
+            ],
             'changed_settings' => array_keys($config),
+            'changed_config' => $model->getAttributes(array_keys($config)),
         ];
     }
 
@@ -128,8 +135,11 @@ class CmsSiteService extends AbstractCmsService
     {
         $config = (array)$theme->config;
         $object = $theme->objectTheme;
-        if ($object && $object->configFormModel) {
-            $config = array_merge($object->configFormModelData, $config);
+        if ($object) {
+            $model = $object->configFormModel;
+            if ($model) {
+                $config = $model->getAttributes($model->safeAttributes());
+            }
         }
         return array_merge($theme->toArray(), [
             'theme_name' => $theme->themeName,

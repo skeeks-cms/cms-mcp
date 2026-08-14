@@ -24,7 +24,10 @@ param(
     [string]$ArgumentsPath,
 
     [ValidateRange(0, 3600)]
-    [int]$RefreshSkewSeconds = 120
+    [int]$RefreshSkewSeconds = 120,
+
+    [ValidateRange(0, 3600)]
+    [int]$RequestTimeoutSeconds = 120
 )
 
 $ErrorActionPreference = 'Stop'
@@ -339,12 +342,12 @@ try {
     if ($skipRequest) {
         # The authorized catalog is fresh in the local, credential-specific cache.
     } elseif ($method -eq 'POST') {
-        $webResponse = Invoke-WebRequest -UseBasicParsing -Method Post -Uri $requestUri -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body
+        $webResponse = Invoke-WebRequest -UseBasicParsing -Method Post -Uri $requestUri -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec $RequestTimeoutSeconds
         $responseHeaders = $webResponse.Headers
         $response = ConvertFrom-JsonDocument $webResponse.Content
     } elseif ($Action -eq 'tools') {
         try {
-            $webResponse = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $requestUri -Headers $headers
+            $webResponse = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $requestUri -Headers $headers -TimeoutSec $RequestTimeoutSeconds
             $responseHeaders = $webResponse.Headers
             $response = ConvertFrom-JsonDocument $webResponse.Content
             $cacheStatus = 'updated'
@@ -378,7 +381,7 @@ try {
             $cacheStatus = 'validated'
         }
     } else {
-        $response = Invoke-RestMethod -Method Get -Uri $requestUri -Headers $headers
+        $response = Invoke-RestMethod -Method Get -Uri $requestUri -Headers $headers -TimeoutSec $RequestTimeoutSeconds
     }
 } finally {
     $stopwatch.Stop()
