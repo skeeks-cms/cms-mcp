@@ -56,6 +56,8 @@ class CmsTreeService extends AbstractCmsService
         }
         $model = new CmsTree();
         $this->apply($model, $arguments, $this->writableAttributes());
+        $this->prepareRedirect($model, $arguments);
+        $this->ensureRedirectTarget($model, (int)$parent->cms_site_id);
         $model->active = $this->publishedValue($arguments, 'N');
         $transaction = CmsTree::getDb()->beginTransaction();
         try {
@@ -76,6 +78,8 @@ class CmsTreeService extends AbstractCmsService
     {
         $model = $this->find(CmsTree::class, $arguments);
         $this->apply($model, $arguments, $this->writableAttributes());
+        $this->prepareRedirect($model, $arguments);
+        $this->ensureRedirectTarget($model);
         if (array_key_exists('publish', $arguments)) {
             $model->active = $this->publishedValue($arguments, $model->active);
         }
@@ -91,7 +95,12 @@ class CmsTreeService extends AbstractCmsService
     {
         $model = !empty($arguments['id']) ? $this->find(CmsTree::class, $arguments) : new CmsTree();
         $this->apply($model, $arguments, $this->writableAttributes());
+        $this->prepareRedirect($model, $arguments);
         $valid = $model->validate();
+        if ($redirectError = $this->redirectTargetError($model)) {
+            $model->addError('redirect_tree_id', $redirectError);
+            $valid = false;
+        }
         $propertyErrors = $this->validateProperties($model, $arguments);
         return [
             'valid' => $valid && !$propertyErrors,
@@ -143,7 +152,51 @@ class CmsTreeService extends AbstractCmsService
             'name', 'code', 'tree_type_id', 'description_short', 'description_full',
             'description_short_type', 'description_full_type', 'seo_h1', 'meta_title',
             'meta_description', 'meta_keywords', 'priority', 'active', 'is_index',
-            'view_file', 'image_id', 'image_full_id',
+            'view_file', 'image_id', 'image_full_id', 'redirect_tree_id', 'redirect_code',
         ];
+    }
+
+    protected function prepareRedirect(CmsTree $model, array $arguments): void
+    {
+        $source = array_merge($arguments, (array)($arguments['attributes'] ?? []));
+        if (empty($source['redirect_tree_id'])) {
+            return;
+        }
+
+        // A section can have only one redirect destination. Internal tree redirects
+        // deliberately take precedence over legacy URL/content/filter destinations.
+        $model->redirect = null;
+        $model->redirect_content_element_id = null;
+        $model->redirect_saved_filter_id = null;
+    }
+
+    protected function ensureRedirectTarget(CmsTree $model, ?int $cmsSiteId = null): void
+    {
+        if ($error = $this->redirectTargetError($model, $cmsSiteId)) {
+            throw new Exception($error);
+        }
+    }
+
+    protected function redirectTargetError(CmsTree $model, ?int $cmsSiteId = null): ?string
+    {
+        $targetId = (int)$model->redirect_tree_id;
+        if (!$targetId) {
+            return null;
+        }
+        if (!$model->isNewRecord && $targetId === (int)$model->id) {
+            return 'A cms_tree section cannot redirect to itself.';
+        }
+
+        $target = CmsTree::findOne($targetId);
+        if (!$target) {
+            return 'Redirect target cms_tree #'.$targetId.' not found.';
+        }
+
+        $sourceSiteId = $cmsSiteId ?: (int)$model->cms_site_id;
+        if ($sourceSiteId && (int)$target->cms_site_id !== $sourceSiteId) {
+            return 'Redirect target cms_tree must belong to the same site.';
+        }
+
+        return null;
     }
 }

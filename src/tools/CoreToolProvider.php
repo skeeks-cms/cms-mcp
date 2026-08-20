@@ -56,9 +56,9 @@ class CoreToolProvider extends Component implements McpToolProviderInterface
             $this->tool('cms_tree_list', 'Список разделов cms_tree с фильтрами.', 'cms.tree.read', [$tree, 'treeList'], $this->listSchema(['cms_site_id' => ['type' => 'integer'], 'pid' => ['type' => 'integer'], 'tree_type_id' => ['type' => 'integer'], 'active' => ['type' => 'string']])),
             $this->tool('cms_tree_get', 'Карточка раздела cms_tree, URL и дополнительные поля.', 'cms.tree.read', [$tree, 'treeGet'], $this->idSchema()),
             $this->tool('cms_tree_resolve', 'Поиск раздела по id, URL-пути или коду.', 'cms.tree.read', [$tree, 'treeResolve'], $this->objectSchema(['id' => ['type' => 'integer'], 'path' => ['type' => 'string'], 'code' => ['type' => 'string'], 'cms_site_id' => ['type' => 'integer']])),
-            $this->tool('cms_tree_create', 'Создание дочернего раздела cms_tree в черновике.', 'cms.tree.write', [$tree, 'treeCreate'], $this->mutationSchema(['parent_id', 'name'])),
-            $this->tool('cms_tree_update', 'Редактирование и публикация раздела cms_tree.', 'cms.tree.write', [$tree, 'treeUpdate'], $this->mutationSchema(['id'])),
-            $this->tool('cms_tree_validate', 'Проверка раздела и его дополнительных полей без сохранения.', 'cms.tree.write', [$tree, 'treeValidate'], $this->mutationSchema()),
+            $this->tool('cms_tree_create', 'Создание дочернего раздела cms_tree в черновике.', 'cms.tree.write', [$tree, 'treeCreate'], $this->treeMutationSchema(['parent_id', 'name'])),
+            $this->tool('cms_tree_update', 'Редактирование и публикация раздела cms_tree.', 'cms.tree.write', [$tree, 'treeUpdate'], $this->treeMutationSchema(['id'])),
+            $this->tool('cms_tree_validate', 'Проверка раздела и его дополнительных полей без сохранения.', 'cms.tree.write', [$tree, 'treeValidate'], $this->treeMutationSchema()),
             $this->tool('cms_tree_type_list', 'Доступные типы разделов cms_tree_type.', 'cms.tree.read', [$tree, 'treeTypeList'], $this->listSchema()),
             $this->tool('cms_tree_type_get', 'Тип раздела и его дополнительные поля.', 'cms.tree.read', [$tree, 'treeTypeGet'], $this->idSchema()),
             $this->tool('cms_tree_type_property_list', 'Дополнительные поля типа раздела.', 'cms.tree.read', [$tree, 'treeTypePropertyList'], $this->objectSchema(['tree_type_id' => ['type' => 'integer']], ['tree_type_id'])),
@@ -151,6 +151,22 @@ class CoreToolProvider extends Component implements McpToolProviderInterface
             ],
             'file_ids' => ['type' => 'array', 'items' => ['type' => 'integer']],
         ], $required);
+    }
+
+    protected function treeMutationSchema(array $required = []): array
+    {
+        $schema = $this->mutationSchema($required);
+        $schema['properties']['redirect_tree_id'] = [
+            'type' => ['integer', 'null'],
+            'description' => 'Internal cms_tree redirect target. The target must belong to the same site.',
+        ];
+        $schema['properties']['redirect_code'] = [
+            'type' => 'integer',
+            'enum' => [301, 302],
+            'description' => 'HTTP status for an internal section redirect.',
+        ];
+        $schema['properties']['attributes']['description'] = 'Safe cms_tree attributes; redirect_tree_id and redirect_code are supported.';
+        return $schema;
     }
 
     protected function siteService(): CmsSiteService

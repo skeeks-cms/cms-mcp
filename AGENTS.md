@@ -199,6 +199,11 @@ of truth is MCP `tools/list`.
 - Content: `cms_content_type_list`, `cms_content_type_get`, `cms_content_list`, `cms_content_get`, compact `cms_content_property_list`, targeted `cms_content_property_get` and paginated `cms_content_property_enum_list`.
 - Elements: `cms_content_element_list`, `cms_content_element_get`, `cms_content_element_create`, `cms_content_element_update`, `cms_content_element_validate`.
 - Files: `cms_storage_file_list`, `cms_storage_file_get`, `cms_storage_file_upload`.
+
+Tree create, update and validate accept an internal section redirect through
+`redirect_tree_id` with `redirect_code` 301 or 302. The target must exist on
+the same site and cannot be the source section itself. Selecting an internal
+target clears legacy URL, content-element and saved-filter redirect targets.
 - Saved SEO filters: `cms_saved_filter_list`, `cms_saved_filter_get`,
   `cms_saved_filter_resolve`, `cms_saved_filter_create`,
   `cms_saved_filter_update`, `cms_saved_filter_validate`.
