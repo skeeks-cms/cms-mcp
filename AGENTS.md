@@ -449,3 +449,29 @@ registered with an explicit scope list remain restricted to that list.
 - Confirm no delete tools were introduced.
 - Validate Composer JSON and PHP syntax when a PHP runtime is available.
 - Use `ast-index` before raw search for SkeekS vendor symbols.
+
+## Task actions and work time
+
+Use `cms_task_action` with `id` and one action: `accept`, `start`, `pause`,
+`complete`, `approve`, `reopen`, `cancel`. `start` also resumes paused work.
+`complete` marks a self-assigned task ready, otherwise submits it for author
+review. `approve` belongs to the author. `pause` and completion close the task
+interval but leave the employee working day running, matching administration.
+The OAuth identity is the actor; an administrator cannot start another
+employee's timer through this API.
+
+`cms_task_create` and `cms_task_update` reject `status` at both top level and
+inside `attributes`. Do not use raw schedule CRUD to emulate task actions.
+Task lifecycle orchestration belongs to `skeeks/cms/services/TaskWorkflow`,
+shared with the administration widget; the MCP service resolves record access
+and serializes only safe interval fields. Task actions use `cms.task.write`;
+interval changes are inherent side effects of this task operation.
+
+`cms_task_status_repair` is an administrator-only recovery of an unknown
+status. It follows the exact audit chain to an accepted/paused state, refuses
+open intervals and missing history, and records recovery using normal model
+events. It never changes a valid status or creates work-time history.
+
+Run `TASK_WORKFLOW_TEST=local php tests/task-workflow.php` only against a local
+site (`TEST_APP_ROOT`, default `/app`). Tests use real model validations and
+transactions, and roll back all database changes. Test users 1 and 23 must exist.

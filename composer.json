@@ -5,7 +5,7 @@
     "license": "BSD-3-Clause",
     "require": {
         "php": "^7.4|^8.0",
-        "skeeks/cms": "^6.4 || dev-master",
+        "skeeks/cms": "^6.4.9.27 || dev-master",
         "skeeks/cms-oauth2-server": "^1.0 || dev-main || dev-master"
     },
     "suggest": {

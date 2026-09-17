@@ -45,6 +45,7 @@ class CmsTaskService extends AbstractCmsService
 
     public function taskCreate(array $arguments): array
     {
+        $this->rejectStatusWrite($arguments);
         $task = new CmsTask(); $task->loadDefaultValues();
         if (!isset($arguments['name']) && isset($arguments['title'])) { $arguments['name'] = $arguments['title']; }
         if (empty($arguments['executor_id'])) { $arguments['executor_id'] = (int)\Yii::$app->user->id; }
@@ -61,10 +62,54 @@ class CmsTaskService extends AbstractCmsService
 
     public function taskUpdate(array $arguments): array
     {
+        $this->rejectStatusWrite($arguments);
         $task = $this->findAllowed(CmsTask::class, $arguments);
         if (isset($arguments['duration_minutes']) && !isset($arguments['plan_duration'])) { $arguments['plan_duration'] = max(0, (int)$arguments['duration_minutes']) * 60; }
         $this->applyWritable($task, $arguments, $this->writable);
         return $this->taskData($this->save($task, 'Task validation failed'), true);
+    }
+
+    protected function rejectStatusWrite(array $arguments): void
+    {
+        if (array_key_exists('status', $arguments) || array_key_exists('status', (array)($arguments['attributes'] ?? []))) {
+            throw new Exception('Task status is read-only in create/update. Use cms_task_action (accept, start, pause, complete, approve, reopen, cancel).');
+        }
+    }
+
+    public function taskAction(array $arguments): array
+    {
+        $task = $this->findAllowed(CmsTask::class, $arguments);
+        $action = $arguments['action'] ?? '';
+        $statuses = [
+            'accept' => CmsTask::STATUS_ACCEPTED,
+            'start' => CmsTask::STATUS_IN_WORK,
+            'pause' => CmsTask::STATUS_ON_PAUSE,
+            'complete' => $task->executor_id == $task->created_by ? CmsTask::STATUS_READY : CmsTask::STATUS_ON_CHECK,
+            'approve' => CmsTask::STATUS_READY,
+            'reopen' => CmsTask::STATUS_ON_PAUSE,
+            'cancel' => CmsTask::STATUS_CANCELED,
+        ];
+        if (!is_string($action) || !isset($statuses[$action])) { throw new Exception('Unknown task action.'); }
+        // These labels are distinct intentions, even when their target status matches.
+        if ($action === 'complete' && (int)$task->executor_id !== (int)\Yii::$app->user->id) { throw new Exception('Only the executor may complete work.'); }
+        if ($action === 'approve' && ($task->status !== CmsTask::STATUS_ON_CHECK && $task->status !== CmsTask::STATUS_READY)) { throw new Exception('Only a task awaiting review may be approved.'); }
+        if ($action === 'pause' && !in_array($task->status, [CmsTask::STATUS_IN_WORK, CmsTask::STATUS_ON_PAUSE], true)) { throw new Exception('Only a running task may be paused.'); }
+        if ($action === 'reopen' && !in_array($task->status, [CmsTask::STATUS_ON_CHECK, CmsTask::STATUS_READY, CmsTask::STATUS_CANCELED, CmsTask::STATUS_ON_PAUSE], true)) { throw new Exception('This task cannot be reopened.'); }
+        $result = (new \skeeks\cms\services\TaskWorkflow())->transition($task, $statuses[$action]);
+        return [
+            'task' => $this->taskData($task),
+            'changed' => $result['changed'],
+            'work_time_started' => $result['work_time_started'],
+            'work_time_running' => (bool)\Yii::$app->user->identity->isWorkingNow,
+            'task_interval' => $result['schedule'] ? $result['schedule']->getAttributes(['id', 'cms_task_id', 'cms_user_id', 'start_at', 'end_at']) : null,
+        ];
+    }
+
+    public function taskRepairStatus(array $arguments): array
+    {
+        $task = $this->findAllowed(CmsTask::class, $arguments);
+        (new \skeeks\cms\services\TaskWorkflow())->repairStatus($task);
+        return $this->taskData($task);
     }
 
     public function taskDayList(array $arguments): array
