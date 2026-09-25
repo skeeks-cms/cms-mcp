@@ -97,34 +97,58 @@ class CmsComponentSettingsService extends AbstractCmsService
             throw new Exception('Component settings payload is too large.');
         }
 
+        //Как в администрировании: основной сайт редактирует настройки по умолчанию, остальные сайты — свои.
+        $override = $site->is_default ? CmsComponent::OVERRIDE_DEFAULT : CmsComponent::OVERRIDE_SITE;
+        $overridePath = $component->overridePath;
+
         $component->cmsSite = $site;
-        $component->refresh();
+        $component->overridePath = $override == CmsComponent::OVERRIDE_DEFAULT
+            ? [CmsComponent::OVERRIDE_DEFAULT]
+            : [CmsComponent::OVERRIDE_DEFAULT, CmsComponent::OVERRIDE_SITE];
 
-        $allowed = $component->safeAttributes();
-        $unknown = array_values(array_diff(array_keys($attributes), $allowed));
-        if ($unknown) {
-            throw new Exception('Unknown or read-only component settings: '.implode(', ', $unknown));
-        }
+        try {
+            $component->refresh();
 
-        $component->setAttributes($attributes);
-        $component->setOverride(CmsComponent::OVERRIDE_SITE);
-        if (!$component->save(true, array_keys($attributes))) {
-            throw new Exception('Component settings validation failed: '.$this->errorsArray($component->errors));
+            $allowed = $component->safeAttributes();
+            $unknown = array_values(array_diff(array_keys($attributes), $allowed));
+            if ($unknown) {
+                throw new Exception('Unknown or read-only component settings: '.implode(', ', $unknown));
+            }
+
+            $component->setAttributes($attributes);
+            $component->setOverride($override);
+            if (!$component->save(true, array_keys($attributes))) {
+                throw new Exception('Component settings validation failed: '.$this->errorsArray($component->errors));
+            }
+        } finally {
+            $component->overridePath = $overridePath;
+            $component->refresh();
         }
-        $component->refresh();
 
         $values = [];
         foreach ($component->safeAttributes() as $attribute) {
             $values[$attribute] = $component->getAttribute($attribute);
         }
 
-        return [
+        $result = [
             'id' => $arguments['component'],
             'class' => get_class($component),
             'cms_site_id' => (int)$site->id,
+            'override' => $override,
             'changed_settings' => array_keys($attributes),
             'effective_settings' => $values,
         ];
+
+        if ($override == CmsComponent::OVERRIDE_DEFAULT) {
+            $siteSettings = CmsComponentSettings::findByComponentSite($component, $site)->one();
+            $shadowed = $siteSettings ? array_values(array_intersect(array_keys($attributes), array_keys((array)$siteSettings->value))) : [];
+            if ($shadowed) {
+                $result['warnings'][] = 'Site-level settings #'.$siteSettings->id.' override: '.implode(', ', $shadowed)
+                    .'. Administration of the default site does not show them; remove that record to apply the saved defaults.';
+            }
+        }
+
+        return $result;
     }
 
     protected function resolveComponent(string $id)
