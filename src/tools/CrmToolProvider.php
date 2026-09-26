@@ -108,7 +108,7 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
         if ($prefix === 'cms_company') { $updateDescription .= ' category_ids и manager_ids полностью заменяют соответствующие связи; пустой массив очищает их.'; }
         $result = [
             $this->tool($prefix.'_list', 'Список, поиск и фильтрация '.$label.'.', $scope.'.read', [$service, $methodPrefix.'List'], $schemas['list'] ?? $this->listSchema()),
-            $this->tool($prefix.'_get', 'Получение '.$label.' по id.', $scope.'.read', [$service, $methodPrefix.'Get'], $schemas['get'] ?? $this->idSchema()),
+            $this->tool($prefix.'_get', 'Получение '.$label.' по id.'.($prefix === 'cms_task' ? ' results содержит число результатов задачи (закреплённых комментариев) и последние из них; добавить результат — cms_task_comment_create с is_result=true.' : ''), $scope.'.read', [$service, $methodPrefix.'Get'], $schemas['get'] ?? $this->idSchema()),
             $this->tool($prefix.'_create', $createDescription, $scope.'.write', [$service, $methodPrefix.'Create'], $schemas['create'] ?? $this->mutation()),
             $this->tool($prefix.'_update', $updateDescription, $scope.'.write', [$service, $methodPrefix.'Update'], $schemas['update'] ?? $this->mutation(['id'])),
         ];

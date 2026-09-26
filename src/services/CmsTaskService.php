@@ -160,7 +160,10 @@ class CmsTaskService extends AbstractCmsService
             'cms_company_ref' => function (CmsTask $model) { return $this->namedReference($model->cmsCompany); },
         ];
         $data = $this->withRelations($task, $details ? ['cmsProject', 'cmsCompany', 'files'] : [], $extra);
-        if ($details) { $data['cms_user_ref'] = $this->userReference($task->cmsUser); }
+        if ($details) {
+            $data['cms_user_ref'] = $this->userReference($task->cmsUser);
+            $data['results'] = \Yii::createObject(CmsActivityService::class)->taskResults($task);
+        }
         return $data;
     }
 

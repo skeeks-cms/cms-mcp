@@ -233,8 +233,14 @@ the existing record. There is no delete tool.
 - optional individual `shop_bill_item` and `shop_document_item` positions.
 
 `ActivityToolProvider` exposes `cms_log` list/get/statistics, a unified
-`cms_company_timeline_get`, and create/update operations for comments. Only
+`cms_company_timeline_get`, and create/update/pin operations for comments. Only
 comment records are editable; generated business history remains immutable.
+Comment targets are a task (`cms_task_id`), a company or a client user. Task
+comments, results and pin/edit rights follow the CMS skill's task-workflow
+reference; `cms_task_comment_create` (`is_result=true`),
+`cms_task_comment_list`, `cms_log_comment_pin` and the `results` block of
+`cms_task_get` are thin views over those records, and serialized logs carry
+`is_task_result`.
 
 `CommunicationToolProvider` exposes calls, SMS messages and safe provider
 metadata. Starting a call or sending an SMS is an external side effect and must
@@ -479,6 +485,8 @@ events. It never changes a valid status or creates work-time history.
 Run `TASK_WORKFLOW_TEST=local php tests/task-workflow.php` only against a local
 site (`TEST_APP_ROOT`, default `/app`). Tests use real model validations and
 transactions, and roll back all database changes. Test users 1 and 23 must exist.
+`TASK_COMMENTS_TEST=local php tests/task-comments.php` covers task comments,
+results, pinning and comment edit rights under the same local-only rules.
 ## Explicit HTTP test-site authorization
 
 The Windows login, REST and direct-first clients accept `-AllowInsecureHttp`
