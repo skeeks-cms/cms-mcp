@@ -8,6 +8,8 @@ param(
 
     [string]$CredentialPath,
 
+    [switch]$AllowInsecureHttp,
+
     [string]$ToolName,
 
     [string]$ToolPattern,
@@ -115,8 +117,8 @@ function Assert-HttpsUri([string]$Value, [string]$Name) {
     if (![Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri)) {
         throw "$Name must be an absolute URI."
     }
-    if ($uri.Scheme -ne 'https' -and !(($uri.Scheme -eq 'http') -and $uri.IsLoopback)) {
-        throw "$Name must use HTTPS unless it targets localhost."
+    if ($uri.Scheme -ne 'https' -and !(($uri.Scheme -eq 'http') -and ($uri.IsLoopback -or ($AllowInsecureHttp -and $uri.Host -eq $Site)))) {
+        throw "$Name must use HTTPS unless it targets localhost or -AllowInsecureHttp is explicitly set for this test site."
     }
     return $uri
 }

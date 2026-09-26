@@ -28,6 +28,8 @@ param(
 
     [string]$Site,
 
+    [switch]$AllowInsecureHttp,
+
     [string]$ProfilePath,
 
     [string]$Query,
@@ -331,7 +333,7 @@ if ($Operation -ne 'tool.call') {
 
 $restClient = Join-Path $PSScriptRoot 'skeeks-rest.ps1'
 try {
-    $rawResult = & $restClient -Site $Site -Action execute -ToolName $tool -ArgumentsBase64 $ArgumentsBase64
+    $rawResult = & $restClient -AllowInsecureHttp:$AllowInsecureHttp -Site $Site -Action execute -ToolName $tool -ArgumentsBase64 $ArgumentsBase64
     if ($Full -or $Operation -in @('company.get', 'saved-filter.get', 'tool.call')) {
         $rawResult
         exit 0
@@ -385,7 +387,7 @@ try {
     $schema = $null
     if ($schemaEligible) {
         try {
-            $schema = & $restClient -Site $Site -Action tool-schema -ToolName $tool
+            $schema = & $restClient -AllowInsecureHttp:$AllowInsecureHttp -Site $Site -Action tool-schema -ToolName $tool
         } catch {
             $schema = $null
         }

@@ -479,3 +479,13 @@ events. It never changes a valid status or creates work-time history.
 Run `TASK_WORKFLOW_TEST=local php tests/task-workflow.php` only against a local
 site (`TEST_APP_ROOT`, default `/app`). Tests use real model validations and
 transactions, and roll back all database changes. Test users 1 and 23 must exist.
+## Explicit HTTP test-site authorization
+
+The Windows login, REST and direct-first clients accept `-AllowInsecureHttp`
+only as an explicit per-invocation opt-in for a user-approved HTTP test site.
+HTTPS remains the default. Login takes `-Site http://<host>`; REST and
+`skeeks-api.ps1` take the plain host and reuse the stored resource URL.
+Pass the switch on subsequent HTTP reads, writes and token refreshes too.
+OAuth metadata endpoints remain bound to the selected host and port; the
+REST HTTP exception is bound to `-Site`. PKCE, state verification, loopback
+callback and DPAPI storage still use the canonical implementation.

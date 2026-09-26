@@ -10,6 +10,8 @@ param(
     [ValidateRange(30, 900)]
     [int]$TimeoutSeconds = 300,
 
+    [switch]$AllowInsecureHttp,
+
     [switch]$ForceAuthorization
 )
 
@@ -82,7 +84,7 @@ function Assert-HttpsEndpoint([string]$Value, [string]$ExpectedHost, [string]$Na
     if (![Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri)) {
         throw "$Name is not an absolute URI."
     }
-    if ($uri.Scheme -ne 'https' -or $uri.Host -ne $ExpectedHost) {
+    if (($uri.Scheme -ne 'https' -and !($AllowInsecureHttp -and $originUri.Scheme -eq 'http' -and $uri.Scheme -eq 'http')) -or $uri.Host -ne $ExpectedHost -or $uri.Port -ne $originUri.Port) {
         throw "$Name must use HTTPS on $ExpectedHost."
     }
     return $uri
@@ -180,9 +182,10 @@ function Wait-AuthorizationCode($Listener, [string]$ExpectedState, [int]$Timeout
 
 $originText = if ($Site -match '^https?://') { $Site } else { 'https://' + $Site }
 $originUri = [Uri]$originText
-if ($originUri.Scheme -ne 'https' -and !(($originUri.Scheme -eq 'http') -and $originUri.IsLoopback)) {
-    throw 'Site must use HTTPS unless it targets localhost.'
+if ($originUri.Scheme -ne 'https' -and !(($originUri.Scheme -eq 'http') -and ($originUri.IsLoopback -or $AllowInsecureHttp))) {
+    throw 'Site must use HTTPS unless it targets localhost or -AllowInsecureHttp is explicitly set for a test site.'
 }
+$httpArgument = if ($AllowInsecureHttp) { ' -AllowInsecureHttp' } else { '' }
 $origin = $originUri.GetLeftPart([UriPartial]::Authority).TrimEnd('/')
 $siteKey = $originUri.Host.ToLowerInvariant()
 
@@ -198,7 +201,7 @@ if ((Test-Path -LiteralPath $CredentialPath) -and !$ForceAuthorization) {
         status = 'already_authorized'
         site = $siteKey
         credential_path = $CredentialPath
-        next_command = "& '$powershellExe' -NoProfile -ExecutionPolicy Bypass -File '$restScript' -Site '$siteKey' -Action tools-index"
+        next_command = "& '$powershellExe' -NoProfile -ExecutionPolicy Bypass -File '$restScript' -Site '$siteKey' -Action tools-index$httpArgument"
     } | ConvertTo-Json
     exit 0
 }
@@ -324,7 +327,7 @@ try {
         access_token_expires_at = $store.access_token_expires_at
         refresh_token_expires_at = $store.refresh_token_expires_at
         registered_new_client = $registeredNewClient
-        next_command = "& '$powershellExe' -NoProfile -ExecutionPolicy Bypass -File '$restScript' -Site '$siteKey' -Action tools-index"
+        next_command = "& '$powershellExe' -NoProfile -ExecutionPolicy Bypass -File '$restScript' -Site '$siteKey' -Action tools-index$httpArgument"
     } | ConvertTo-Json
 } finally {
     $clientSecret = $null
