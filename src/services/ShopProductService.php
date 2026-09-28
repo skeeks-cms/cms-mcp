@@ -12,7 +12,7 @@ use yii\base\Exception;
 class ShopProductService extends AbstractCmsService
 {
     protected $elementWritable = ['name', 'code', 'content_id', 'tree_id', 'treeIds', 'cms_site_id', 'description_short', 'description_full', 'description_short_type', 'description_full_type', 'seo_h1', 'meta_title', 'meta_description', 'meta_keywords', 'priority', 'published_at', 'published_to', 'parent_content_element_id', 'image_id', 'image_full_id', 'external_id'];
-    protected $productWritable = ['weight', 'width', 'length', 'height', 'measure_ratio', 'measure_ratio_min', 'vat_id', 'vat_included', 'measure_code', 'brand_id', 'brand_sku', 'country_alpha2', 'expiration_time', 'expiration_time_comment', 'service_life_time', 'service_life_time_comment', 'warranty_time', 'warranty_time_comment', 'offers_pid', 'product_type', 'shop_product_model_id', 'baseProductPriceValue', 'baseProductPriceCurrency', 'barcodes', 'collections'];
+    protected $productWritable = ['weight', 'width', 'length', 'height', 'measure_ratio', 'measure_ratio_min', 'measure_matches_jsondata', 'vat_id', 'vat_included', 'measure_code', 'brand_id', 'brand_sku', 'country_alpha2', 'expiration_time', 'expiration_time_comment', 'service_life_time', 'service_life_time_comment', 'warranty_time', 'warranty_time_comment', 'offers_pid', 'product_type', 'shop_product_model_id', 'baseProductPriceValue', 'baseProductPriceCurrency', 'barcodes', 'collections'];
 
     public function productList(array $a): array
     {
@@ -246,6 +246,9 @@ class ShopProductService extends AbstractCmsService
     {
         $elementInput = array_merge($a, (array)($a['element'] ?? []));
         $productInput = array_merge($a, (array)($a['product'] ?? []));
+        if (isset($productInput['measure_matches_jsondata']) && is_array($productInput['measure_matches_jsondata'])) {
+            $productInput['measure_matches_jsondata'] = json_encode($productInput['measure_matches_jsondata']);
+        }
         $this->apply($element, $elementInput, $this->elementWritable);
         if (array_key_exists('publish', $a)) { $element->active = $this->publishedValue($a, $element->active ?: 'N'); }
         elseif ($element->isNewRecord) { $element->active = 'N'; }
