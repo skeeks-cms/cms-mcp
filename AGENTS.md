@@ -395,6 +395,19 @@ storage upload, CMS mutations and verification URLs.
 - Financial analysis: use filtered `*_list` and `*_stats` tools for bills,
   payments, documents and checks. Change bill/document rows only through their
   item tools and read totals back after each mutation.
+
+`shop_payment_list` and `shop_payment_stats` accept `available_for_user_id`
+(top-level or inside `filters`) under the existing `cms.finance.read` scope.
+Resolve the worker with `cms_worker_list` first. Only an administrator may
+select another worker; a worker may select self. The selected employee's
+company/client visibility is intersected with the OAuth viewer's scope,
+never substituted for it. Invalid/non-worker IDs fail; `shop_payment_get`
+still resolves the payment through the viewer's ordinary manager scope.
+List and statistics share all payment query filters and created_at date ranges;
+a date-only date_to includes the end of that day. Test the real tool callbacks
+and administration predicates with `PAYMENT_VISIBILITY_TEST=local php
+tests/payment-visibility.php` against a local site (read-only transaction;
+default local identities 1 and 110, September 2026 payments).
 - Inventory: create movement rows inside an unapproved movement document;
   present the consequence; approve explicitly to change stock.
 

@@ -89,12 +89,42 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
             $document = \Yii::createObject($this->documentServiceConfig);
             $tools = array_merge($tools, $this->crud('shop_bill', 'счёта', 'cms.finance', $bill, 'bill', 'billStats'));
             $tools = array_merge($tools, $this->crud('shop_bill_item', 'позиции счёта', 'cms.finance', $bill, 'item'));
-            $tools = array_merge($tools, $this->crud('shop_payment', 'платежа', 'cms.finance', \Yii::createObject($this->paymentServiceConfig), 'payment', 'paymentStats'));
+            $tools = array_merge($tools, $this->crud('shop_payment', 'платежа', 'cms.finance', \Yii::createObject($this->paymentServiceConfig), 'payment', 'paymentStats', [
+                'list' => $this->paymentListSchema(),
+                'stats' => $this->paymentStatsSchema(),
+            ]));
             $tools = array_merge($tools, $this->crud('shop_document', 'документа', 'cms.finance', $document, 'document', 'documentStats'));
             $tools = array_merge($tools, $this->crud('shop_document_item', 'позиции документа', 'cms.finance', $document, 'item'));
             $tools = array_merge($tools, $this->crud('shop_check', 'чека', 'cms.finance', \Yii::createObject($this->checkServiceConfig), 'check', 'checkStats'));
         }
         return $tools;
+    }
+
+    protected function paymentListSchema(): array
+    {
+        $schema = $this->listSchema();
+        $schema['properties']['available_for_user_id'] = [
+            'type' => 'integer',
+            'minimum' => 1,
+            'description' => 'Платежи, доступные сотруднику через его компании и клиентов (включая подчинённых). Сначала найдите сотрудника через cms_worker_list. Только администратор может выбрать другого сотрудника; права OAuth-пользователя сохраняются.',
+        ];
+        foreach (['cms_site_id', 'cms_company_id', 'cms_user_id'] as $field) {
+            $schema['properties'][$field] = ['type' => 'integer'];
+        }
+        $schema['properties']['currency_code'] = ['type' => 'string'];
+        $schema['properties']['date_from']['description'] = 'Начало диапазона created_at.';
+        $schema['properties']['date_to']['description'] = 'Конец диапазона created_at (для даты включительно до конца дня).';
+        return $schema;
+    }
+
+    protected function paymentStatsSchema(): array
+    {
+        $schema = $this->paymentListSchema();
+        foreach (['sort_by', 'sort_direction', 'limit', 'offset', 'named_filters'] as $field) {
+            unset($schema['properties'][$field]);
+        }
+        $schema['properties']['group_by'] = ['type' => 'string', 'enum' => ['company', 'user', 'site', 'currency']];
+        return $schema;
     }
 
     protected function crud(string $prefix, string $label, string $scope, $service, string $methodPrefix, string $statsMethod = null, array $schemas = []): array
