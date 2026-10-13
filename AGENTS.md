@@ -202,6 +202,22 @@ of truth is MCP `tools/list`.
 - Tree types: `cms_tree_type_list`, `cms_tree_type_get`, `cms_tree_type_property_list`.
 - Content: `cms_content_type_list`, `cms_content_type_get`, `cms_content_list`, `cms_content_get`, compact `cms_content_property_list`, targeted `cms_content_property_get` and paginated `cms_content_property_enum_list`.
 - Elements: `cms_content_element_list`, `cms_content_element_get`, `cms_content_element_create`, `cms_content_element_update`, `cms_content_element_validate`.
+- Element joins: `cms_content_element_join_get`, `cms_content_element_join`,
+  `cms_content_element_join_detach`.
+
+Element joins are the administration «Связи» tab: a flat group
+`cms_content_model`, referenced by `cms_content_element.cms_content_model_id`.
+Every element of a group is related to every other one; storefront templates
+render the group per content type (products as «Связанные товары», other
+content as related records, e.g. products of a promotion). This is not the
+product-variant group: variants use `shop_product.shop_product_model_id` and
+`shop_product_join*`. Join tools accept up to 100 element ids of the same site.
+An element that already belongs to another join group is never moved silently:
+`cms_content_element_join` returns `requires_confirmation` with the conflicts,
+and moves it only on `confirm=true` after the user agrees. Detach clears only
+the relation, like administration «Отвязать»; a group left with one element
+is removed and that element's `cms_content_model_id` is cleared. Elements are
+never deleted.
 - Files: `cms_storage_file_list`, `cms_storage_file_get`, `cms_storage_file_upload`.
 
 Tree create, update and validate accept an internal section redirect through

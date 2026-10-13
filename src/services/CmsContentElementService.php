@@ -4,6 +4,7 @@ namespace skeeks\cms\mcp\services;
 
 use skeeks\cms\models\CmsContent;
 use skeeks\cms\models\CmsContentElement;
+use skeeks\cms\models\CmsContentModel;
 use skeeks\cms\models\CmsContentProperty;
 use skeeks\cms\models\CmsContentPropertyEnum;
 use skeeks\cms\models\CmsContentType;
@@ -171,6 +172,198 @@ class CmsContentElementService extends AbstractCmsService
             'property_errors' => $propertyErrors,
             'content_id' => $model->content_id,
         ];
+    }
+
+    /**
+     * «Связи» элемента (администрирование: вкладка «Связи»): плоская группа cms_content_model,
+     * все элементы группы связаны друг с другом. Сгруппировано по типу контента.
+     */
+    public function elementJoinGet(array $arguments): array
+    {
+        $element = $this->find(CmsContentElement::class, $arguments);
+        $modelId = (int)$element->cms_content_model_id;
+        $limit = max(1, min(500, (int)($arguments['limit'] ?? 200)));
+
+        $groups = [];
+        $total = 0;
+        if ($modelId) {
+            $query = CmsContentElement::find()
+                ->with(['cmsContent'])
+                ->andWhere(['cms_content_model_id' => $modelId])
+                ->andWhere(['!=', CmsContentElement::tableName().'.id', (int)$element->id]);
+            $total = (int)(clone $query)->count();
+            foreach ($query->orderBy(['content_id' => SORT_ASC, 'id' => SORT_ASC])->limit($limit)->all() as $related) {
+                $contentId = (int)$related->content_id;
+                if (!isset($groups[$contentId])) {
+                    $groups[$contentId] = [
+                        'content_id' => $contentId,
+                        'content_name' => $related->cmsContent ? (string)$related->cmsContent->name : null,
+                        'is_products' => $related->cmsContent ? (bool)$related->cmsContent->isProducts : false,
+                        'items' => [],
+                    ];
+                }
+                $groups[$contentId]['items'][] = $this->elementReferenceData($related);
+            }
+        }
+
+        return [
+            'id' => (int)$element->id,
+            'cms_content_model_id' => $modelId ?: null,
+            'is_joined' => $modelId > 0,
+            'total' => $total,
+            'limit' => $limit,
+            'groups' => array_values($groups),
+        ];
+    }
+
+    /**
+     * Добавить элементы в «Связи» элемента id. Элементы из другой группы связей переносятся только с confirm=true.
+     */
+    public function elementJoin(array $arguments): array
+    {
+        if (!\Yii::$app->user->id) { throw new Exception('OAuth CMS user is required.'); }
+        $element = $this->find(CmsContentElement::class, $arguments);
+        $ids = $this->joinElementIds($arguments, (int)$element->id);
+        $elements = $this->joinElements($ids);
+
+        $modelId = (int)$element->cms_content_model_id;
+        $conflicts = [];
+        foreach ($elements as $related) {
+            if ((int)$related->cms_site_id !== (int)$element->cms_site_id) {
+                throw new Exception('Element #'.$related->id.' belongs to another site; joins are limited to one site.');
+            }
+            $relatedModelId = (int)$related->cms_content_model_id;
+            if ($relatedModelId && $relatedModelId !== $modelId) {
+                $conflicts[] = $this->elementReferenceData($related) + [
+                    'cms_content_model_id' => $relatedModelId,
+                    'group_size' => (int)CmsContentElement::find()->andWhere(['cms_content_model_id' => $relatedModelId])->count(),
+                ];
+            }
+        }
+        if ($conflicts && empty($arguments['confirm'])) {
+            return [
+                'requires_confirmation' => true,
+                'message' => 'Some elements already belong to another join group. They will leave that group and lose its relations. Repeat with confirm=true after explicit user confirmation.',
+                'conflicts' => $conflicts,
+            ];
+        }
+
+        $transaction = CmsContentElement::getDb()->beginTransaction();
+        try {
+            if (!$modelId) {
+                $model = new CmsContentModel();
+                if (!$model->save()) {
+                    throw new Exception('Join group creation failed: '.$this->modelErrors($model));
+                }
+                $modelId = (int)$model->id;
+                $this->setJoinModel($element, $modelId);
+            }
+            $leftModelIds = [];
+            foreach ($elements as $related) {
+                if ((int)$related->cms_content_model_id === $modelId) { continue; }
+                if ($related->cms_content_model_id) { $leftModelIds[] = (int)$related->cms_content_model_id; }
+                $this->setJoinModel($related, $modelId);
+            }
+            $this->dropEmptyJoinModels($leftModelIds);
+            $transaction->commit();
+        } catch (\Throwable $e) {
+            $transaction->rollBack();
+            throw $e;
+        }
+
+        return $this->elementJoinGet(['id' => (int)$element->id]);
+    }
+
+    /**
+     * Убрать элементы из «Связей» элемента id (как «Отвязать» в администрировании). Элементы не удаляются.
+     */
+    public function elementJoinDetach(array $arguments): array
+    {
+        if (!\Yii::$app->user->id) { throw new Exception('OAuth CMS user is required.'); }
+        $element = $this->find(CmsContentElement::class, $arguments);
+        $modelId = (int)$element->cms_content_model_id;
+        if (!$modelId) { throw new Exception('The element has no joins.'); }
+        $elements = $this->joinElements($this->joinElementIds($arguments, 0));
+        foreach ($elements as $related) {
+            if ((int)$related->cms_content_model_id !== $modelId) {
+                throw new Exception('Element #'.$related->id.' is not joined with element #'.$element->id.'.');
+            }
+        }
+
+        $transaction = CmsContentElement::getDb()->beginTransaction();
+        try {
+            foreach ($elements as $related) {
+                $this->setJoinModel($related, null);
+            }
+            $this->dropEmptyJoinModels([$modelId]);
+            $transaction->commit();
+        } catch (\Throwable $e) {
+            $transaction->rollBack();
+            throw $e;
+        }
+
+        return $this->elementJoinGet(['id' => (int)$element->id]);
+    }
+
+    public function elementReferenceData(CmsContentElement $element): array
+    {
+        return [
+            'id' => (int)$element->id,
+            'name' => (string)$element->name,
+            'code' => (string)$element->code,
+            'content_id' => (int)$element->content_id,
+            'tree_id' => $element->tree_id !== null ? (int)$element->tree_id : null,
+            'published' => $element->active === 'Y',
+            'url' => $element->absoluteUrl,
+        ];
+    }
+
+    protected function joinElementIds(array $arguments, int $excludeId): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array)($arguments['element_ids'] ?? [])))));
+        $ids = array_values(array_filter($ids, static function ($id) use ($excludeId) { return $id !== $excludeId; }));
+        if (!$ids || count($ids) > 100) {
+            throw new Exception('element_ids must contain between 1 and 100 unique element ids other than id.');
+        }
+        return $ids;
+    }
+
+    /**
+     * @return CmsContentElement[]
+     */
+    protected function joinElements(array $ids): array
+    {
+        $elements = CmsContentElement::find()->andWhere(['id' => $ids])->orderBy(['id' => SORT_ASC])->all();
+        if (count($elements) !== count($ids)) {
+            $found = array_map(static function (CmsContentElement $e) { return (int)$e->id; }, $elements);
+            throw new Exception('Some elements were not found: '.implode(', ', array_diff($ids, $found)).'.');
+        }
+        return $elements;
+    }
+
+    protected function setJoinModel(CmsContentElement $element, ?int $modelId): void
+    {
+        $element->cms_content_model_id = $modelId;
+        $element->updated_at = time();
+        if (!$element->update(false, ['cms_content_model_id', 'updated_at'])) {
+            throw new Exception('Updating joins of element #'.$element->id.' failed.');
+        }
+    }
+
+    /**
+     * Группа из одного элемента — уже не связь: удаляем её запись, как администрирование («Отвязать»);
+     * у оставшегося элемента cms_content_model_id обнуляется
+     */
+    protected function dropEmptyJoinModels(array $modelIds): void
+    {
+        foreach (array_unique(array_filter($modelIds)) as $id) {
+            if ((int)CmsContentElement::find()->andWhere(['cms_content_model_id' => $id])->count() <= 1) {
+                CmsContentElement::updateAll(['cms_content_model_id' => null], ['cms_content_model_id' => $id]);
+                if ($model = CmsContentModel::findOne($id)) {
+                    $model->delete();
+                }
+            }
+        }
     }
 
     public function contentData(CmsContent $content, bool $details = false): array

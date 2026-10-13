@@ -87,7 +87,19 @@ class CoreToolProvider extends Component implements McpToolProviderInterface
             $this->tool('cms_content_element_create', 'Создание публикации в черновике.', 'cms.content.write', [$content, 'elementCreate'], $this->mutationSchema(['content_id', 'name'])),
             $this->tool('cms_content_element_update', 'Редактирование и публикация существующей публикации.', 'cms.content.write', [$content, 'elementUpdate'], $this->mutationSchema(['id'])),
             $this->tool('cms_content_element_validate', 'Проверка публикации и дополнительных полей без сохранения.', 'cms.content.write', [$content, 'elementValidate'], $this->mutationSchema()),
-
+            $this->tool('cms_content_element_join_get', 'Связи публикации (вкладка «Связи» в администрировании): элементы общей группы cms_content_model по типам контента — например, товары акции. Карточка товара и публикации выводят их как «Связанные …».', 'cms.content.read', [$content, 'elementJoinGet'], $this->objectSchema([
+                'id' => ['type' => 'integer', 'description' => 'cms_content_element id'],
+                'limit' => ['type' => 'integer', 'description' => 'Максимум связанных элементов в ответе, по умолчанию 200 (до 500); total — полное число.'],
+            ], ['id'])),
+            $this->tool('cms_content_element_join', 'Связать с публикацией id до 100 элементов (товары, публикации). Все элементы группы связаны друг с другом. Элемент из другой группы связей переносится только после requires_confirmation и повтора с confirm=true.', 'cms.content.write', [$content, 'elementJoin'], $this->objectSchema([
+                'id' => ['type' => 'integer', 'description' => 'cms_content_element id, к которому привязываются элементы'],
+                'element_ids' => ['type' => 'array', 'minItems' => 1, 'maxItems' => 100, 'uniqueItems' => true, 'items' => ['type' => 'integer'], 'description' => 'cms_content_element id; для товаров — id товара (совпадает с id его элемента)'],
+                'confirm' => ['type' => 'boolean', 'description' => 'Перенести элементы из других групп связей; только после явного согласия пользователя'],
+            ], ['id', 'element_ids'])),
+            $this->tool('cms_content_element_join_detach', 'Убрать элементы из связей публикации id (как «Отвязать» в администрировании). Сами элементы не удаляются.', 'cms.content.write', [$content, 'elementJoinDetach'], $this->objectSchema([
+                'id' => ['type' => 'integer', 'description' => 'cms_content_element id'],
+                'element_ids' => ['type' => 'array', 'minItems' => 1, 'maxItems' => 100, 'uniqueItems' => true, 'items' => ['type' => 'integer'], 'description' => 'Связанные элементы, которые нужно отвязать; может включать сам id'],
+            ], ['id', 'element_ids'])),
             $this->tool('cms_storage_file_list', 'Список файлов cms_storage_file.', 'cms.storage.read', [$storage, 'fileList'], $this->listSchema(['cms_site_id' => ['type' => 'integer'], 'mime_type' => ['type' => 'string']])),
             $this->tool('cms_storage_file_get', 'Карточка файла и публичный URL.', 'cms.storage.read', [$storage, 'fileGet'], $this->idSchema()),
             $this->tool('cms_storage_file_upload', 'Загрузка файла из multipart, URL или base64.', 'cms.storage.write', [$storage, 'fileUpload'], $this->objectSchema(['source_url' => ['type' => 'string'], 'base64' => ['type' => 'string'], 'filename' => ['type' => 'string'], 'cms_site_id' => ['type' => 'integer'], 'cluster_id' => ['type' => 'string']])),
