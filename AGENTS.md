@@ -149,6 +149,11 @@ Retry with the returned confirmation flag only after explicit approval.
 - Do not add delete or destructive tools unless the security policy is explicitly changed.
 - Create pages and content elements as drafts. Require an explicit publish operation.
 - Return stable identifiers and URLs required for verification.
+- Serialize records and relations through `AbstractCmsService::recordData()`:
+  it strips `$secretAttributes` (password hashes, `auth_key`, session/OAuth/push
+  token hashes, SIP passwords, marketplace keys) from every record, including
+  `createdBy`, managers and other related users. Do not return raw `toArray()`
+  of a model that can hold such columns; extend the list when a table gains one.
 - Use table-oriented names such as `cms_tree` and `cms_content_element`.
 - Do not add `.idea/` to Git.
 
