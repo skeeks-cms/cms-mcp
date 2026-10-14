@@ -18,9 +18,27 @@ abstract class AbstractCmsService extends Component
         'logged_at', 'last_activity_at', 'last_admin_activity_at',
     ];
 
+    /**
+     * Секреты, которые API не отдаёт ни в одной записи, включая связанные
+     * (createdBy, managers, users и т.п. сериализуются через recordData()).
+     */
+    protected $secretAttributes = [
+        'auth_key', 'auth_key_hash', 'password_hash', 'password_reset_token', 'access_token',
+        'secret_hash', 'token', 'token_hash', 'refresh_token_family', 'execution_token',
+        'sip_password', 'oz_api_key',
+    ];
+
     public function recordData($model): array
     {
-        return $model instanceof ActiveRecord ? $model->toArray() : (array)$model;
+        if (!$model instanceof ActiveRecord) {
+            return (array)$model;
+        }
+
+        $data = $model->toArray();
+        foreach ($this->secretAttributes as $attribute) {
+            unset($data[$attribute]);
+        }
+        return $data;
     }
 
     public function propertyData($property): array
