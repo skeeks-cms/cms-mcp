@@ -48,6 +48,26 @@ abstract class AbstractCmsService extends Component
         return $data;
     }
 
+    /**
+     * Компоненты дополнительных полей (Yii::$app->cms->relatedHandlers) — общий каталог
+     * для характеристик контента и полей Form2.
+     */
+    public function relatedHandlerList(): array
+    {
+        $items = [];
+        foreach (\Yii::$app->cms->relatedHandlers as $id => $handler) {
+            $items[] = [
+                'id' => (string)$id,
+                'name' => (string)$handler->name,
+                'class' => get_class($handler),
+                'value_type' => (string)$handler->code,
+                'is_multiple' => (bool)$handler->isMultiple,
+                'default_settings' => $handler->toArray(),
+            ];
+        }
+        return ['items' => $items, 'total' => count($items)];
+    }
+
     protected function page($query, array $arguments, callable $serializer = null, array $telemetry = []): array
     {
         $limit = max(1, min(100, (int)($arguments['limit'] ?? 50)));

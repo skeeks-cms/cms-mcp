@@ -78,6 +78,22 @@ compact and paginated; fetch one heavy component configuration through
 `cms_content_property_get` and enum values through
 `cms_content_property_enum_list`.
 
+Content properties (administration «Характеристики», `cms_content_property`)
+can be created and edited by an administrator. Read
+`cms_content_property_component_list` first, look for an existing property with
+`cms_content_property_list` (`q`), then call `cms_content_property_create` with
+`name`, `component` and `content_ids` (plus `code`, `component_settings`,
+`tree_ids`, shop flags `is_offer_property`, `is_img_offer_property`,
+`is_sticker`). The component determines `property_type` (S, N, B, L, E, T, A)
+and multiplicity; settings are validated by the component and stored as its
+`toArray()`, exactly as administration does. `cms_content_property_update` is
+partial; `content_ids`/`tree_ids` replace bindings when present. List variants
+use `cms_content_property_enum_get`, `cms_content_property_enum_create`
+(idempotent by value), `cms_content_property_enum_create_batch` (up to 100,
+per-row result) and `cms_content_property_enum_update`. There are no delete
+tools. Run `CONTENT_PROPERTIES_TEST=local php tests/content-properties.php`
+against a local site only; all changes are rolled back.
+
 `cms_saved_filter_*` manages the public SEO landing pages shown in
 `/cms/admin-cms-saved-filter`; these are not personal admin-grid presets. Each
 record belongs to a site and section and uses exactly one selector: a content

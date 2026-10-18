@@ -8,10 +8,26 @@ use skeeks\cms\models\CmsContentModel;
 use skeeks\cms\models\CmsContentProperty;
 use skeeks\cms\models\CmsContentPropertyEnum;
 use skeeks\cms\models\CmsContentType;
+use skeeks\cms\models\CmsSite;
+use skeeks\cms\models\CmsStorageFile;
+use skeeks\cms\models\CmsTree;
+use skeeks\cms\rbac\CmsManager;
+use skeeks\cms\relatedProperties\PropertyType;
 use yii\base\Exception;
+use yii\db\ActiveQuery;
 
 class CmsContentElementService extends AbstractCmsService
 {
+    /** Поля характеристики, которые редактирует администрирование (сайт и служебные флаги бренда/страны — нет) */
+    protected $propertyWritable = [
+        'name', 'code', 'priority', 'hint', 'is_active', 'is_required', 'component',
+        'cms_measure_code', 'is_offer_property', 'is_img_offer_property', 'is_sticker',
+    ];
+
+    protected $propertyEnumWritable = [
+        'value', 'code', 'priority', 'def', 'value_for_saved_filter', 'description', 'color', 'cms_image_id',
+    ];
+
     public function contentTypeList(array $arguments): array
     {
         return $this->page(CmsContentType::find()->orderBy(['priority' => SORT_ASC]), $arguments);
@@ -66,13 +82,16 @@ class CmsContentElementService extends AbstractCmsService
 
     public function contentPropertyGet(array $arguments): array
     {
-        $content = CmsContent::findOne((int)($arguments['content_id'] ?? 0));
+        if (empty($arguments['content_id'])) {
+            return $this->contentPropertyFullData($this->findSiteContentProperty($arguments));
+        }
+        $content = CmsContent::findOne((int)$arguments['content_id']);
         if (!$content) { throw new Exception('cms_content not found.'); }
         $property = $content->getCmsContentProperties()
             ->andWhere([CmsContentProperty::tableName().'.id' => (int)($arguments['id'] ?? 0)])
             ->one();
         if (!$property) { throw new Exception('cms_content_property not found for this content.'); }
-        return $this->contentPropertyData($property, true);
+        return $this->contentPropertyFullData($property);
     }
 
     public function contentPropertyEnumList(array $arguments): array
@@ -87,6 +106,84 @@ class CmsContentElementService extends AbstractCmsService
             ]);
         }
         return $this->page($query->orderBy(['priority' => SORT_ASC, 'id' => SORT_ASC]), $arguments, [$this, 'contentPropertyEnumData']);
+    }
+
+    public function contentPropertyComponentList(array $arguments): array
+    {
+        return $this->relatedHandlerList();
+    }
+
+    /**
+     * Характеристика создаётся так же, как в /cms/admin-cms-content-property/create:
+     * сайт — выбранный (по умолчанию текущий), настройки компонента — провалидированный toArray() обработчика.
+     */
+    public function contentPropertyCreate(array $arguments): array
+    {
+        $this->assertPropertyManager();
+        $site = $this->findSite($arguments);
+        if (!array_key_exists('content_ids', $arguments)) {
+            throw new Exception('content_ids is required: a property is shown only in the selected cms_content.');
+        }
+        $model = new CmsContentProperty();
+        $model->loadDefaultValues();
+        $model->cms_site_id = (int)$site->id;
+        return $this->mutateContentProperty($model, $arguments);
+    }
+
+    public function contentPropertyUpdate(array $arguments): array
+    {
+        $this->assertPropertyManager();
+        return $this->mutateContentProperty($this->findSiteContentProperty($arguments), $arguments);
+    }
+
+    public function contentPropertyEnumGet(array $arguments): array
+    {
+        return $this->contentPropertyEnumData($this->findSiteContentPropertyEnum($arguments));
+    }
+
+    /**
+     * Идемпотентно: вариант с тем же значением (без учёта регистра, как сравнивает MySQL) не дублируется.
+     */
+    public function contentPropertyEnumCreate(array $arguments): array
+    {
+        $this->assertPropertyManager();
+        $property = $this->findSiteContentProperty(['id' => $arguments['property_id'] ?? 0, 'cms_site_id' => $arguments['cms_site_id'] ?? null]);
+        $this->assertListContentProperty($property);
+        return $this->createContentPropertyEnum($property, $arguments);
+    }
+
+    public function contentPropertyEnumCreateBatch(array $arguments): array
+    {
+        $this->assertPropertyManager();
+        $property = $this->findSiteContentProperty(['id' => $arguments['property_id'] ?? 0, 'cms_site_id' => $arguments['cms_site_id'] ?? null]);
+        $this->assertListContentProperty($property);
+        $items = array_values((array)($arguments['items'] ?? []));
+        if (!$items || count($items) > 100) {
+            throw new Exception('items must contain between 1 and 100 enum values.');
+        }
+        $results = [];
+        $counts = ['created' => 0, 'existing' => 0, 'error' => 0];
+        foreach ($items as $index => $item) {
+            $item = is_array($item) ? $item : ['value' => $item];
+            try {
+                $enum = $this->createContentPropertyEnum($property, $item);
+                $status = $enum['created'] ? 'created' : 'existing';
+                $results[] = ['index' => $index, 'status' => $status, 'enum' => $enum];
+            } catch (\Throwable $e) {
+                $status = 'error';
+                $results[] = ['index' => $index, 'status' => $status, 'value' => isset($item['value']) ? (string)$item['value'] : null, 'error' => $e->getMessage()];
+            }
+            $counts[$status]++;
+        }
+        return ['property_id' => (int)$property->id, 'counts' => $counts, 'items' => $results];
+    }
+
+    public function contentPropertyEnumUpdate(array $arguments): array
+    {
+        $this->assertPropertyManager();
+        $model = $this->findSiteContentPropertyEnum($arguments);
+        $this->assertListContentProperty($model->property);
+        return $this->mutateContentPropertyEnum($model, $arguments);
     }
 
     public function elementList(array $arguments): array
@@ -394,14 +491,242 @@ class CmsContentElementService extends AbstractCmsService
         return $data;
     }
 
+    /**
+     * Карточка характеристики с настройками компонента, привязками к контентам и разделам.
+     */
+    public function contentPropertyFullData(CmsContentProperty $property): array
+    {
+        $data = $this->contentPropertyData($property, true);
+        $data['content_ids'] = array_map('intval', $property->getCmsContentProperty2contents()->select('cms_content_id')->orderBy(['cms_content_id' => SORT_ASC])->column());
+        $data['tree_ids'] = array_map('intval', $property->getCmsContentProperty2trees()->select('cms_tree_id')->orderBy(['cms_tree_id' => SORT_ASC])->column());
+        $data['enums_total'] = $property->property_type === PropertyType::CODE_LIST ? (int)$property->getEnums()->count() : 0;
+        return $data;
+    }
+
     public function contentPropertyEnumData(CmsContentPropertyEnum $enum): array
     {
-        $fields = ['id', 'property_id', 'value', 'value_for_saved_filter', 'description', 'priority', 'cms_image_id', 'color'];
+        $fields = ['id', 'property_id', 'value', 'code', 'def', 'value_for_saved_filter', 'description', 'priority', 'cms_image_id', 'color'];
         $data = [];
         foreach ($fields as $field) {
             if ($enum->hasAttribute($field)) { $data[$field] = $enum->getAttribute($field); }
         }
+        $data['default'] = $enum->def === 'Y';
         return $data;
+    }
+
+    protected function mutateContentProperty(CmsContentProperty $model, array $arguments): array
+    {
+        $source = array_merge($arguments, (array)($arguments['attributes'] ?? []));
+        foreach (['is_active', 'is_required', 'is_offer_property', 'is_img_offer_property', 'is_sticker'] as $attribute) {
+            if (isset($source[$attribute]) && is_bool($source[$attribute])) {
+                $source[$attribute] = $source[$attribute] ? 1 : 0;
+            }
+        }
+        $isNew = $model->isNewRecord;
+        $component = (string)($source['component'] ?? $model->component);
+        $componentChanged = !$isNew && array_key_exists('component', $source) && $component !== (string)$model->component;
+        if (!$component || !\Yii::$app->cms->hasRelatedHandler($component)) {
+            throw new Exception('Unknown property component. Read cms_content_property_component_list first.');
+        }
+        // Как в администрировании: тип списка с уже созданными вариантами не меняется
+        if ($componentChanged && $model->property_type === PropertyType::CODE_LIST
+            && \Yii::$app->cms->getRelatedHandler($component)->code !== PropertyType::CODE_LIST
+            && $model->getEnums()->exists()) {
+            throw new Exception('The list property already has enum values; its component can only be changed to another list component.');
+        }
+
+        $this->applyWritable($model, $source, $this->propertyWritable);
+        if ($isNew || $componentChanged || array_key_exists('component_settings', $source)) {
+            $settings = ($isNew || $componentChanged) ? [] : (array)$model->component_settings;
+            if (array_key_exists('component_settings', $source)) {
+                if (!is_array($source['component_settings'])) {
+                    throw new Exception('component_settings must be an object.');
+                }
+                $settings = array_merge($settings, $source['component_settings']);
+            }
+            $model->component_settings = $this->validatedPropertySettings($model, $component, $settings);
+        }
+        if (array_key_exists('content_ids', $source)) {
+            $model->cmsContents = $this->propertyContentIds($source['content_ids']);
+        }
+        if (array_key_exists('tree_ids', $source)) {
+            $model->cmsTrees = $this->propertyTreeIds($source['tree_ids'], (int)$model->cms_site_id);
+        }
+        if ((int)$model->is_sticker === 1) {
+            $sticker = CmsContentProperty::find()
+                ->andWhere(['is_sticker' => 1, 'cms_site_id' => $model->cms_site_id])
+                ->andFilterWhere(['!=', 'id', $model->id])
+                ->one();
+            if ($sticker) {
+                throw new Exception('The site already has a sticker property #'.$sticker->id.' ('.$sticker->name.'); only one is allowed.');
+            }
+        }
+
+        $transaction = CmsContentProperty::getDb()->beginTransaction();
+        try {
+            $this->save($model, 'cms_content_property validation failed');
+            $transaction->commit();
+        } catch (\Throwable $e) {
+            $transaction->rollBack();
+            throw $e;
+        }
+        return $this->contentPropertyFullData($model);
+    }
+
+    /**
+     * Настройки сохраняются как в администрировании: toArray() обработчика после load() и validate().
+     * Служебные ключи (тип, имя компонента, ссылка на свойство) задаёт сам обработчик.
+     */
+    protected function validatedPropertySettings(CmsContentProperty $property, string $component, array $settings): array
+    {
+        foreach (['id', 'code', 'name', 'property', 'activeForm', 'model'] as $key) {
+            unset($settings[$key]);
+        }
+        $handler = clone \Yii::$app->cms->getRelatedHandler($component);
+        $handler->property = $property;
+        $handler->load($settings, '');
+        if (!$handler->validate()) {
+            throw new Exception('Property component settings validation failed: '.$this->modelErrors($handler));
+        }
+        return $handler->toArray();
+    }
+
+    protected function propertyContentIds($value): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array)$value))));
+        if (!$ids) {
+            throw new Exception('content_ids must contain at least one cms_content id.');
+        }
+        $found = array_map('intval', CmsContent::find()->select('id')->andWhere(['id' => $ids])->column());
+        if ($missing = array_diff($ids, $found)) {
+            throw new Exception('cms_content not found: '.implode(', ', $missing).'.');
+        }
+        return $ids;
+    }
+
+    protected function propertyTreeIds($value, int $siteId): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array)$value))));
+        if (count($ids) > 500) {
+            throw new Exception('tree_ids accepts at most 500 sections.');
+        }
+        if (!$ids) {
+            return [];
+        }
+        $sites = CmsTree::find()->select(['cms_site_id', 'id'])->andWhere(['id' => $ids])->indexBy('id')->column();
+        if ($missing = array_diff($ids, array_map('intval', array_keys($sites)))) {
+            throw new Exception('cms_tree not found: '.implode(', ', $missing).'.');
+        }
+        foreach ($sites as $id => $treeSiteId) {
+            if ((int)$treeSiteId !== $siteId) {
+                throw new Exception('cms_tree #'.$id.' belongs to another site than the property.');
+            }
+        }
+        return $ids;
+    }
+
+    protected function createContentPropertyEnum(CmsContentProperty $property, array $arguments): array
+    {
+        $value = trim((string)($arguments['value'] ?? ($arguments['attributes']['value'] ?? '')));
+        if ($value === '') {
+            throw new Exception('value is required.');
+        }
+        if ($existing = $property->getEnums()->andWhere(['value' => $value])->orderBy(['id' => SORT_ASC])->one()) {
+            return $this->contentPropertyEnumData($existing) + ['created' => false];
+        }
+        $model = new CmsContentPropertyEnum();
+        $model->loadDefaultValues();
+        $model->property_id = (int)$property->id;
+        return $this->mutateContentPropertyEnum($model, $arguments) + ['created' => true];
+    }
+
+    protected function mutateContentPropertyEnum(CmsContentPropertyEnum $model, array $arguments): array
+    {
+        $source = array_merge($arguments, (array)($arguments['attributes'] ?? []));
+        if (array_key_exists('default', $source) && !array_key_exists('def', $source)) {
+            $source['def'] = $source['default'] ? 'Y' : 'N';
+        } elseif (array_key_exists('def', $source) && is_bool($source['def'])) {
+            $source['def'] = $source['def'] ? 'Y' : 'N';
+        }
+        if (array_key_exists('value', $source)) {
+            $source['value'] = trim((string)$source['value']);
+        }
+        if (array_key_exists('cms_image_id', $source) && $source['cms_image_id'] !== null) {
+            // Только id уже загруженного файла: строку HasStorageFile принял бы за адрес и скачал
+            $source['cms_image_id'] = (int)$source['cms_image_id'];
+            if (!CmsStorageFile::find()->andWhere(['id' => $source['cms_image_id']])->exists()) {
+                throw new Exception('cms_storage_file #'.$source['cms_image_id'].' not found; upload it with cms_storage_file_upload first.');
+            }
+        }
+        $this->applyWritable($model, $source, $this->propertyEnumWritable);
+        if ((string)$model->code === '') {
+            // Стандартный код варианта (md5 от rand(1, 10) и времени) повторяется при создании пачкой
+            $model->code = md5(random_bytes(16));
+        } elseif ($model->isAttributeChanged('code') && CmsContentPropertyEnum::find()
+                ->andWhere(['property_id' => $model->property_id, 'code' => $model->code])
+                ->andFilterWhere(['!=', 'id', $model->id])
+                ->exists()) {
+            throw new Exception('Enum code "'.$model->code.'" is already used by this property.');
+        }
+        return $this->contentPropertyEnumData($this->save($model, 'cms_content_property_enum validation failed'));
+    }
+
+    /**
+     * Структура характеристик меняется только администратором, как в /cms/admin-cms-content-property.
+     */
+    protected function assertPropertyManager(): void
+    {
+        if (!\Yii::$app->user->id) {
+            throw new Exception('OAuth CMS user is required.');
+        }
+        if (!\Yii::$app->user->can(CmsManager::PERMISSION_ROLE_ADMIN_ACCESS)) {
+            throw new Exception('Managing content properties requires the administrator role, as in administration.');
+        }
+    }
+
+    /**
+     * Видимость как в администрировании: на основном сайте — свои и общие (без сайта) характеристики,
+     * на остальных — только свои.
+     */
+    protected function applyContentPropertySiteScope(ActiveQuery $query, CmsSite $site, string $alias): void
+    {
+        $column = $alias.'.cms_site_id';
+        $query->andWhere($site->is_default
+            ? ['or', [$column => (int)$site->id], [$column => null]]
+            : [$column => (int)$site->id]);
+    }
+
+    protected function findSiteContentProperty(array $arguments): CmsContentProperty
+    {
+        $site = $this->findSite($arguments);
+        $query = CmsContentProperty::find()->andWhere([CmsContentProperty::tableName().'.id' => (int)($arguments['id'] ?? 0)]);
+        $this->applyContentPropertySiteScope($query, $site, CmsContentProperty::tableName());
+        $model = $query->one();
+        if (!$model) {
+            throw new Exception('cms_content_property not found or unavailable for this site.');
+        }
+        return $model;
+    }
+
+    protected function findSiteContentPropertyEnum(array $arguments): CmsContentPropertyEnum
+    {
+        $site = $this->findSite($arguments);
+        $query = CmsContentPropertyEnum::find()->alias('property_enum')
+            ->innerJoin(CmsContentProperty::tableName().' property', 'property.id = property_enum.property_id')
+            ->andWhere(['property_enum.id' => (int)($arguments['id'] ?? 0)]);
+        $this->applyContentPropertySiteScope($query, $site, 'property');
+        $model = $query->one();
+        if (!$model) {
+            throw new Exception('cms_content_property_enum not found or unavailable for this site.');
+        }
+        return $model;
+    }
+
+    protected function assertListContentProperty(CmsContentProperty $property): void
+    {
+        if ($property->property_type !== PropertyType::CODE_LIST) {
+            throw new Exception('Enum values are available only for a list property (property_type L).');
+        }
     }
 
     public function elementData(CmsContentElement $element, bool $details = false): array

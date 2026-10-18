@@ -27,18 +27,7 @@ class Form2Service extends AbstractCmsService
 
     public function componentList(array $arguments): array
     {
-        $items = [];
-        foreach (\Yii::$app->cms->relatedHandlers as $id => $handler) {
-            $items[] = [
-                'id' => (string)$id,
-                'name' => (string)$handler->name,
-                'class' => get_class($handler),
-                'value_type' => (string)$handler->code,
-                'is_multiple' => (bool)$handler->isMultiple,
-                'default_settings' => $handler->toArray(),
-            ];
-        }
-        return ['items' => $items, 'total' => count($items)];
+        return $this->relatedHandlerList();
     }
 
     public function formList(array $arguments): array

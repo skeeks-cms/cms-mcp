@@ -162,7 +162,7 @@ Retry with the returned confirmation flag only after explicit approval.
 - `CmsSiteService`: sites, active theme and effective theme context.
 - `CmsComponentSettingsService`: component discovery and effective settings.
 - `CmsTreeService`: sections, section types, properties, drafts and publication.
-- `CmsContentElementService`: content types, publications and properties.
+- `CmsContentElementService`: content types, publications, content properties and their enum values.
 - `CmsStorageFileService`: file lookup and multipart, URL or base64 upload.
 - `CmsSavedFilterService`: public SEO filter pages, exact selector resolution,
   consistency validation and duplicate-safe creation.
@@ -206,6 +206,36 @@ of truth is MCP `tools/list`.
 - Tree: `cms_tree_list`, `cms_tree_get`, `cms_tree_resolve`, `cms_tree_create`, `cms_tree_update`, `cms_tree_validate`.
 - Tree types: `cms_tree_type_list`, `cms_tree_type_get`, `cms_tree_type_property_list`.
 - Content: `cms_content_type_list`, `cms_content_type_get`, `cms_content_list`, `cms_content_get`, compact `cms_content_property_list`, targeted `cms_content_property_get` and paginated `cms_content_property_enum_list`.
+- Content properties: `cms_content_property_component_list`,
+  `cms_content_property_create`, `cms_content_property_update`,
+  `cms_content_property_enum_get`, `cms_content_property_enum_create`,
+  `cms_content_property_enum_create_batch`, `cms_content_property_enum_update`.
+
+Content property mutations follow `/cms/admin-cms-content-property`:
+
+- only the administrator role (`CmsManager::PERMISSION_ROLE_ADMIN_ACCESS`) may
+  change property structure, under the `cms.content.write` scope;
+- visibility matches the administration grid: the default site sees its own
+  and site-less properties, other sites only their own; a new property belongs
+  to the selected (by default current) site, and `cms_site_id` is not editable;
+- `component` must be a registered `cms->relatedHandlers` id; `property_type`
+  and `is_multiple` come from the handler on save. `component_settings` are
+  loaded into a cloned handler without its service keys (`id`, `code`, `name`,
+  `property`, `activeForm`, `model`), validated and stored as `toArray()`.
+  Update merges settings; a component change starts from the new defaults;
+- `content_ids` is required on create (`cmsContents` rule) and, like
+  `tree_ids`, replaces the junction rows through `RelationalBehavior` when
+  present. Trees must belong to the property's site;
+- a list property that has enum values cannot switch to a non-list component;
+  one `is_sticker` property per site (unique index) is pre-checked; brand and
+  country flags (`is_vendor*`, `is_country`) stay read-only, as in administration;
+- enum create is idempotent by `value` (database collation, case-insensitive);
+  a missing code is generated with `random_bytes` because the model default
+  repeats within one second; codes are unique per property; `cms_image_id`
+  accepts only an existing storage file id.
+
+`CONTENT_PROPERTIES_TEST=local php tests/content-properties.php` exercises the
+real callbacks against a local site and rolls back every change.
 - Elements: `cms_content_element_list`, `cms_content_element_get`, `cms_content_element_create`, `cms_content_element_update`, `cms_content_element_validate`.
 - Element joins: `cms_content_element_join_get`, `cms_content_element_join`,
   `cms_content_element_join_detach`.
