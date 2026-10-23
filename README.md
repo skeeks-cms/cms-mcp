@@ -117,6 +117,50 @@ form, fields and enum options atomically. Read the result through
 session, cookie and raw request dumps; updates are limited to status and the
 manager comment.
 
+### Reading a CRM client (AI clients)
+
+Three read tools give an AI client the whole picture of a lead, a company or
+a client person, through the employee's `forManager()` scope:
+
+- `cms_crm_history_get` (`cms.activity.read`) — the history in one list,
+  newest first: the card feed (calls, comments, letters and SMS, proposal
+  events — the same entries as the card) plus the records of the card
+  blocks (tasks, deals, bills, payments) and package events (opt-outs).
+  Every entry has `date`, `type`, `subtype`, `title`, `summary`,
+  `direction`, `channel`, `actor` (employee, client, system) and `ref` — the
+  tool that opens the record. Filters: `types`, `date_from`/`date_to`;
+  `include_related=true` adds the feeds of a company's leads and deals.
+- `cms_crm_client_overview_get` and `cms_crm_client_overview_list`
+  (`cms.company.read`) — one call per client for going through the base:
+  status, sphere (company categories), responsible, the client's sites, last
+  contact and its channel, cooperation (deals, paid bills, payments, when it
+  ended), open tasks, package sections (`proposals`, `mailing`). The list
+  filters `no_contact_days`, `had_payments`, `no_active_deals`,
+  `category_ids` and others, 50 clients per page.
+
+Contacts are masked by default (`i***@domain.ru`, `***-**-67`, `[телефон]`
+in texts): the data may go to an external model. `include_contacts=true`
+returns them in full. Personal links of a client (a sending page, an opt-out
+link) are always replaced with `[личная ссылка клиента]`: opening one would
+count as the client's action.
+
+Optional packages extend the API without depending on this package, through
+`Yii::$app->params['cmsMcp']` in their own config (inert when cms-mcp is not
+installed):
+
+```php
+'params' => ['cmsMcp' => [
+    'toolProviders' => ['communication' => CommunicationReadToolProvider::class],
+    'historyLogDescribers' => ['message' => MessageHistoryDescriber::class], // crm\HistoryLogDescriberInterface
+    'historySources' => ['mailing' => MailingHistorySource::class],         // crm\HistorySourceInterface
+    'overviewContributors' => ['mailing' => MailingOverviewContributor::class], // crm\OverviewContributorInterface
+    'personalLinkPatterns' => ['unsubscribe' => '~/\~unsub/~'],
+]],
+```
+
+A site switches an entry off with `null` under the same key. Test:
+`CRM_READ_TEST=local php tests/crm-read.php` (read-only, local site).
+
 Project-specific tools are registered in application configuration:
 
 ```php

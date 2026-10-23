@@ -185,6 +185,8 @@ Retry with the returned confirmation flag only after explicit approval.
 - `ShopCatalogReferenceService`: brands, collections and collection stickers.
 - `Form2Service`: optional `skeeks/cms-module-form2` forms, dynamic fields,
   enum values, safe submission management and statistics.
+- `CrmReadService`: the CRM read model for AI clients — client history in one
+  list and the client overview (see "CRM read model").
 - `AbstractCmsService`: common lookup, pagination, property and validation helpers.
 
 `CoreToolProvider` must not query models, save records or open transactions.
@@ -313,6 +315,45 @@ creating fields, use enum values only with list components, and send the full
 current ID sequence when reordering. Submission updates can change only status
 and manager comment; processing identity comes from OAuth. Never return the
 stored server, session, cookie or raw request dumps from `form2_form_send`.
+
+## CRM read model and package extensions
+
+`CrmReadToolProvider` exposes `cms_crm_history_get`, `cms_crm_client_overview_get`
+and `cms_crm_client_overview_list` (`CrmReadService`, classes in `src/crm`).
+A client is a lead, a company or a client person (`crm\CrmRecord`), resolved
+only through `forManager()` of the OAuth employee.
+
+- The history is the card feed (`crm\FeedHistorySource`: `CmsLogQuery::activity()`
+  of the record, exactly the card's entries; `tests/crm-read.php` compares
+  them) plus the records of the card blocks (`crm\RecordsHistorySource`:
+  tasks, deals, optional bills and payments) and package sources. It is not
+  a raw `cms_log` dump: `cms_company_timeline_get` stays the change log of a
+  company and its records.
+- A feed type owned by a package is described by that package
+  (`crm\HistoryLogDescriberInterface`, keyed by log type), with the same
+  access rule as its feed renderer: `access: false` and no content when the
+  employee may not see the record behind the entry.
+- Events outside the feed come from `crm\HistorySourceInterface`; overview
+  sections from `crm\OverviewContributorInterface` (a page of clients at once).
+- Packages register providers, describers, sources, contributors and personal
+  link patterns in `Yii::$app->params['cmsMcp'][<extension>]` of their own
+  config (`McpComponent::extensions()`), never in a `cmsMcp` component block:
+  a component config without `class` breaks sites that do not install
+  cms-mcp. Keyed entries; `null` switches one off. Their classes may
+  implement cms-mcp interfaces because only cms-mcp loads them.
+- Personal data: every text and contact of these tools goes through
+  `crm\CrmReadContext` (`text()`, `email()`, `phone()`): masked unless
+  `include_contacts=true`. Personal links of a client (`personalLinkPatterns`:
+  sending pages, opt-out links) are always replaced — opening one counts as
+  the client's opening or opt-out. Never return sending codes.
+- Dates are ISO 8601 in the formatter time zone (`crm\CrmDate`).
+- Last contact = the newest call or message (letter, SMS) of the record's feed
+  and, for a company or client person, of its leads; the list filters it with
+  separate indexed subqueries (`lastContactSql()`), never one OR subquery.
+
+`CRM_READ_TEST=local php tests/crm-read.php` checks the feed equality for real
+clients, pagination, filters, masking and worker visibility in a read-only
+transaction through `McpComponent::executeTool()`.
 
 `ShopToolProvider` exposes product, sales and inventory tools for:
 

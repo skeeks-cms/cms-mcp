@@ -43,6 +43,16 @@ return [
                 \skeeks\cms\mcp\tools\CommunicationToolProvider::class,
                 \skeeks\cms\mcp\tools\Form2ToolProvider::class,
                 \skeeks\cms\mcp\tools\ShopToolProvider::class,
+                \skeeks\cms\mcp\tools\CrmReadToolProvider::class,
+            ],
+            // Client history: the card feed and the records of its blocks; packages add theirs through params['cmsMcp'].
+            'historySources' => [
+                'feed' => \skeeks\cms\mcp\crm\FeedHistorySource::class,
+                'records' => \skeeks\cms\mcp\crm\RecordsHistorySource::class,
+            ],
+            'historyLogDescribers' => [
+                \skeeks\cms\models\CmsLog::LOG_TYPE_COMMENT => \skeeks\cms\mcp\crm\CoreHistoryDescribers::class,
+                \skeeks\cms\models\CmsLog::LOG_TYPE_PHONE_CALL => \skeeks\cms\mcp\crm\CoreHistoryDescribers::class,
             ],
         ],
     ],

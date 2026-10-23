@@ -22,6 +22,24 @@ class McpComponent extends Component
     public $restResourceRoute = ['/cms/rest-api'];
     public $toolProviders = [];
     public $tools = [];
+    /**
+     * Optional packages extend the API without depending on this package:
+     * they add their classes to `Yii::$app->params[$paramsKey][<extension>]`
+     * (inert when cms-mcp is not installed), keyed by a name a site can
+     * switch off with null. Extensions: toolProviders, historySources,
+     * historyLogDescribers, overviewContributors, personalLinkPatterns
+     * (see extensions()).
+     */
+    public $paramsKey = 'cmsMcp';
+    /** @var array source name => config of a crm\HistorySourceInterface */
+    public $historySources = [];
+    /** @var array log type => config of a crm\HistoryLogDescriberInterface */
+    public $historyLogDescribers = [];
+    /** @var array name => config of a crm\OverviewContributorInterface */
+    public $overviewContributors = [];
+    /** @var array name => regular expression of a client's personal link, hidden in read results (crm\PersonalData::redactLinks()) */
+    public $personalLinkPatterns = [];
+    private $_extensionObjects = [];
     public $permissionName = CmsManager::PERMISSION_ADMIN_ACCESS;
     public $toolPermissions = [];
     public $enableApiLogging = true;
@@ -38,7 +56,7 @@ class McpComponent extends Component
     {
         if ($this->_tools !== null) { return $this->_tools; }
         $result = [];
-        foreach ($this->toolProviders as $providerConfig) {
+        foreach ($this->extensions('toolProviders') as $providerConfig) {
             $provider = \Yii::createObject($providerConfig);
             if (!$provider instanceof McpToolProviderInterface) {
                 throw new InvalidConfigException('MCP provider must implement McpToolProviderInterface.');
@@ -47,6 +65,39 @@ class McpComponent extends Component
         }
         foreach ($this->tools as $toolConfig) { $this->addTool($result, \Yii::createObject($toolConfig)); }
         return $this->_tools = $result;
+    }
+
+    /**
+     * Configs of an extension: this component's property, then the entries
+     * packages added to Yii::$app->params[$paramsKey][$name]. A string key
+     * replaces the same key; null or false switches an entry off.
+     */
+    public function extensions(string $name): array
+    {
+        $own = property_exists($this, $name) ? (array)$this->{$name} : [];
+        $params = (\Yii::$app && isset(\Yii::$app->params[$this->paramsKey][$name])) ? (array)\Yii::$app->params[$this->paramsKey][$name] : [];
+        return array_filter(array_merge($own, $params), static function ($config) { return $config !== null && $config !== false; });
+    }
+
+    /**
+     * Instances of an extension, keyed as configured, checked against an interface.
+     *
+     * @return object[]
+     */
+    public function extensionObjects(string $name, string $interface): array
+    {
+        if (!isset($this->_extensionObjects[$name])) {
+            $objects = [];
+            foreach ($this->extensions($name) as $key => $config) {
+                $object = \Yii::createObject($config);
+                if (!$object instanceof $interface) {
+                    throw new InvalidConfigException('MCP extension '.$name.'.'.$key.' must implement '.$interface.'.');
+                }
+                $objects[$key] = $object;
+            }
+            $this->_extensionObjects[$name] = $objects;
+        }
+        return $this->_extensionObjects[$name];
     }
 
     public function getTool(string $name): McpToolInterface
