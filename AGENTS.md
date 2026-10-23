@@ -341,6 +341,13 @@ only through `forManager()` of the OAuth employee.
   a component config without `class` breaks sites that do not install
   cms-mcp. Keyed entries; `null` switches one off. Their classes may
   implement cms-mcp interfaces because only cms-mcp loads them.
+- Action tools of packages that mark what an AI client prepared read the
+  client from the OAuth token of the running tool:
+  `McpComponent::getCurrentAccessToken()` / `getCurrentClientName()` (set
+  only inside `execute()`), never from arguments. `execute()` logs
+  `oauth_client_id` with every tool call. Such tools save only with
+  `confirm=true`; without it they return `requires_confirmation` and what
+  would be done (skeeks/cms-communication `CommunicationActionToolProvider`).
 - Personal data: every text and contact of these tools goes through
   `crm\CrmReadContext` (`text()`, `email()`, `phone()`): masked unless
   `include_contacts=true`. Personal links of a client (`personalLinkPatterns`:

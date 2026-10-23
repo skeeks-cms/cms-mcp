@@ -50,6 +50,34 @@ class McpComponent extends Component
         'cms_content_property_list' => 500,
     ];
     private $_tools;
+    /** @var object|null the OAuth access token of the tool being executed */
+    private $_accessToken;
+
+    /**
+     * The OAuth access token of the tool running now (execute()), or null
+     * outside a tool. Action tools read the client from it to mark what an
+     * AI client prepared; arguments never carry it.
+     */
+    public function getCurrentAccessToken()
+    {
+        return $this->_accessToken;
+    }
+
+    /**
+     * The name of the OAuth client running the current tool ("Claude Code
+     * (skeeks)", "Codex"), or "" when unknown (an internal call, a token
+     * without a client).
+     */
+    public function getCurrentClientName(): string
+    {
+        $token = $this->_accessToken;
+        if (!$token || !is_object($token) || !method_exists($token, 'getClient') || !$token->client_id) {
+            return '';
+        }
+        $client = $token->client;
+
+        return $client ? trim((string)$client->name) : '';
+    }
 
     /** @return McpToolInterface[] */
     public function getTools(): array
@@ -190,8 +218,11 @@ class McpComponent extends Component
             'tool' => $tool->getName(),
             'required_scope' => $tool->getRequiredScope(),
             'arguments' => ApiLogService::summarizeArguments($arguments),
+            'oauth_client_id' => is_object($accessToken) && isset($accessToken->client_id) ? (int)$accessToken->client_id : null,
         ]);
         $previousContext = ApiLogService::pushContext($toolContext);
+        $previousToken = $this->_accessToken;
+        $this->_accessToken = $accessToken;
         $startedAt = ApiLogService::startedAt();
 
         if ($this->enableApiLogging) {
@@ -234,6 +265,7 @@ class McpComponent extends Component
             }
             throw $e;
         } finally {
+            $this->_accessToken = $previousToken;
             ApiLogService::restoreContext($previousContext);
         }
     }
