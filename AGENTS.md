@@ -23,6 +23,13 @@ MCP client
 - `src/tools` contains contracts, providers and thin transport adapters.
 - `src/services` contains model access, transactions, validation and serialization.
 - `src/config` connects the controller, component and OAuth resource.
+- `src/McpBootstrap.php` owns the URL rules of `/cms/mcp` and `/cms/rest-api`
+  and puts them before all other rules (`addRules(..., false)`). Do not move
+  them back into `urlManager.rules` of the config: the CMS tree rule comes
+  earlier there and its fallback resolves a path by the code of its last
+  part, so a site section coded `tools` captured `/cms/rest-api/tools`. Keep
+  the endpoint paths: they are also the OAuth resource identifiers that
+  tokens and client configurations are bound to.
 
 The CMS core must not contain MCP controllers, tools or MCP-specific services.
 The OAuth package must not contain MCP-specific resources or scopes.

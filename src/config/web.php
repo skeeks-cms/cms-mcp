@@ -1,30 +1,9 @@
 <?php
 
 return [
-    'components' => [
-        'urlManager' => [
-            'rules' => [
-                [
-                    'pattern' => 'cms/mcp/.well-known/oauth-protected-resource',
-                    'route' => 'cms/oauth/protected-resource',
-                    'verb' => 'GET',
-                    'defaults' => ['path' => 'cms/mcp'],
-                ],
-                [
-                    'pattern' => 'cms/mcp/.well-known/openid-configuration',
-                    'route' => 'cms/oauth/authorization-server',
-                    'verb' => 'GET',
-                ],
-                'GET cms/rest-api' => 'cms/rest-api/index',
-                'GET cms/rest-api/tools' => 'cms/rest-api/tools',
-                'GET cms/rest-api/tools/index' => 'cms/rest-api/tools-index',
-                'GET cms/rest-api/tools/<name:[a-z0-9_\-]+>' => 'cms/rest-api/tool-schema',
-                'GET cms/rest-api/context' => 'cms/rest-api/context',
-                'GET cms/rest-api/openapi' => 'cms/rest-api/openapi',
-                'POST cms/rest-api/tools/<name:[a-z0-9_\-]+>' => 'cms/rest-api/execute',
-            ],
-        ],
-    ],
+    // URL rules of /cms/mcp and /cms/rest-api go before all others (McpBootstrap::rules()):
+    // the CMS tree rule would otherwise catch /cms/rest-api/tools on a site with a section "tools".
+    'bootstrap' => [\skeeks\cms\mcp\McpBootstrap::class],
     'modules' => [
         'cms' => [
             'controllerMap' => [
