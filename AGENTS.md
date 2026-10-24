@@ -83,6 +83,35 @@ not resolved, or a project-specific default. A local application `AGENTS.md`
 may define safe defaults such as a default task executor and takes precedence
 for that project.
 
+### Going through CRM clients and personal offers
+
+When `skeeks/cms-communication` and `skeeks/cms-proposal` are installed, an AI
+client can go through companies, clients and leads and prepare personal
+letters with an offer. Order of work:
+
+1. Resolve the mailing topic (`cms_comm_topic_list`) and the offer
+   (`cms_proposal_library_get`: shared Презентации and КП templates).
+2. Select candidates with `cms_crm_client_overview_list` (sphere, last
+   contact, former cooperation); read `cms_crm_history_get`,
+   `cms_comm_message_*` and `cms_proposal_list` only for the shortlist.
+3. Report candidates, reasons and draft texts to the person; continue only
+   with the clients they approve.
+4. Call `cms_comm_draft_create` (default: drafts in the responsible
+   employee's "Черновики") or `cms_comm_campaign_create` +
+   `cms_comm_campaign_recipient_add` without `confirm`. Each row returns
+   `ready` or `refused` with `reason` and `message` (opted out, written to or
+   offered within 30 days, already waiting in a draft or campaign, limit).
+5. After the person agrees, repeat with `confirm=true` and report draft ids
+   and owners or the campaign URL.
+
+No tool sends a letter or launches a campaign: employees do it in the CRM.
+Everything saved is marked "Подготовлено ИИ" with the OAuth client name by the
+server. Contacts are masked unless `include_contacts=true`; personal client
+links are never returned and must never be opened. Scopes:
+`cms.company.read`, `cms.activity.read`, `cms.communication.read`,
+`cms.communication.send`. Limits are a site setting (`communication.aiLimits`:
+20 rows per call, 100 per user and day).
+
 ## Tool catalog versioning and client cache
 
 The tool catalog is self-describing and versioned at three levels:
