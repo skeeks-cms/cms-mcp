@@ -118,6 +118,17 @@ letters with an offer. Order of work:
    `confirm=true`. On a timeout never resend blindly: read
    `cms_comm_send_status` by the key. `sent` means accepted by the outgoing
    server, not delivered; `unknown` is never resent.
+7. Every draft states `purpose`: `advertising` (needs `cms_comm_topic_id`,
+   goes with "Отписаться"), `personal` (the client wrote recently) or
+   `service` (an active deal or a paid bill); personal and service take no
+   topic. Never call an offer personal to skip the opt-out. Files: upload
+   with `cms_storage_file_upload`, pass the id in `items[].attachments`
+   (`{cms_storage_file_id, inline}`; `{Картинка}` marks the place of an
+   inline picture) or `cms_comm_draft_attachment_add/remove`; read the draft
+   with `cms_comm_draft_get`, change it with `cms_comm_draft_update` and check
+   again. `test_mode=true` works only for the site's test pairs
+   (`communication.aiTestRecipients`) and administrators, and skips only the
+   "recently written / offered" checks.
 
 No tool launches a campaign. Everything saved or sent is marked "Подготовлено
 ИИ" / "отправлено ИИ через API" with the OAuth client name by the server.
