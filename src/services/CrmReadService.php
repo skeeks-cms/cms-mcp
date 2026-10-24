@@ -227,6 +227,11 @@ class CrmReadService extends AbstractCmsService
             $data['company'] = $m->company ? (new CrmRecord(CrmRecord::COMPANY, $m->company))->reference($context) : null;
             $data['sphere'] = $m->cms_company_id ? ($this->companyCategories([(int)$m->cms_company_id])[(int)$m->cms_company_id] ?? []) : [];
             $data['sites'] = $this->sites(array_map(static function ($link) { return ['url' => $link->url, 'link_type' => $link->link_type]; }, $m->links));
+            // A lead often has no site of its own: the site is in the card of its company.
+            if ($m->cms_company_id) {
+                $data['company_sites'] = $this->sites(CmsCompanyLink::find()->select(['url', 'link_type'])->andWhere(['cms_company_id' => (int)$m->cms_company_id])
+                    ->orderBy(['sort' => SORT_ASC, 'id' => SORT_ASC])->asArray()->all());
+            }
             $data['description'] = $context->text(PersonalData::plain($m->description), 300);
             if ($m->status === CmsLead::STATUS_REJECTED) {
                 $data['reject_reason'] = $context->text(PersonalData::plain((string)($m->rejectReasonItem ? $m->rejectReasonItem->name : $m->reject_reason)), 300);
@@ -443,6 +448,16 @@ class CrmReadService extends AbstractCmsService
                 if (isset($f[$key]) && $f[$key] !== '' && $f[$key] !== null) {
                     $query->andWhere([$t.'.'.$column => $f[$key]]);
                 }
+            }
+            // A site of the lead itself or of its company.
+            if (isset($f['has_site']) && $f['has_site'] !== '' && $f['has_site'] !== null) {
+                $exists = ['or',
+                    ['exists', (new Query())->from(['ll' => \skeeks\cms\models\CmsLeadLink::tableName()])->andWhere(new Expression('ll.cms_lead_id = '.$t.'.id'))
+                        ->andWhere(['ll.link_type' => CmsCompanyLink::TYPE_OTHER])],
+                    ['exists', (new Query())->from(['lk' => CmsCompanyLink::tableName()])->andWhere(new Expression('lk.cms_company_id = '.$t.'.cms_company_id'))
+                        ->andWhere(['lk.link_type' => CmsCompanyLink::TYPE_OTHER])],
+                ];
+                $query->andWhere($f['has_site'] ? $exists : ['not', $exists]);
             }
             return;
         }

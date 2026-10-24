@@ -12,6 +12,11 @@ $scopes = [
     'cms.user.read', 'cms.user.write', 'cms.task.read', 'cms.task.write',
     'cms.worktime.read', 'cms.worktime.write', 'cms.finance.read', 'cms.finance.write',
     'cms.activity.read', 'cms.activity.write', 'cms.communication.read', 'cms.communication.send',
+    // Mail of the CRM (skeeks/cms-communication): write — drafts, draft campaigns, mailing topics;
+    // mail_send — sending a checked draft. Separate grants: preparing never implies sending.
+    'cms.communication.write', 'cms.communication.mail_send',
+    // Offers (skeeks/cms-proposal): presentations and КП.
+    'cms.proposal.write',
     'cms.form.read', 'cms.form.write', 'cms.form_send.read', 'cms.form_send.write',
     'cms.shop.product.read', 'cms.shop.product.write', 'cms.shop.order.read', 'cms.shop.order.write',
     'cms.shop.pricing.read', 'cms.shop.pricing.write',

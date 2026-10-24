@@ -56,7 +56,8 @@ class CrmReadToolProvider extends Component implements McpToolProviderInterface
             $this->tool('cms_crm_client_overview_list',
                 'Список клиентов с полями обзора (как cms_crm_client_overview_get, кроме last_incoming) для массового прохода по базе, страницами до 50. '
                 .'Фильтры: no_contact_days (последний звонок/письмо/СМС старше N дней или не было), contacted_within_days, had_payments (были оплаченные счета или поступления), '
-                .'no_payments, no_active_deals, has_active_deals, для компаний — category_ids (сфера, ID из cms_company_category_list), status_ids, company_type, manager_id, has_site; '
+                .'no_payments, no_active_deals, has_active_deals, для компаний — category_ids (сфера, ID из cms_company_category_list), status_ids, company_type, manager_id, has_site; has_site для лидов — сайт лида или его компании (у лида с компанией в обзоре есть company_sites). '
+                .'Пустое поле сайта не доказывает, что сайта нет, а «нет оплат» — что сотрудничества нет: проверяйте статус, сделки, задачи и историю. '
                 .'для лидов — status (new, in_work, success, rejected), executor_id, cms_lead_stage_id, source_type; общие — q (по названию или имени), created_from/created_to. '
                 .'Сортировка sort: last_contact_asc (давно не общались — первыми, по умолчанию), last_contact_desc, id, id_desc, created_at_desc. '
                 .'Пример «бывшие клиенты-магазины плитки, с которыми не общались полгода»: {"record_type":"company","category_ids":[39],"had_payments":true,"no_active_deals":true,"no_contact_days":180,"limit":20}.',

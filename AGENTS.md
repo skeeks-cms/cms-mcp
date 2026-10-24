@@ -110,14 +110,28 @@ letters with an offer. Order of work:
    offered within 30 days, already waiting in a draft or campaign, limit).
 5. After the person agrees, repeat with `confirm=true` and report draft ids
    and owners or the campaign URL.
+6. Sending through the API (only when the person explicitly orders a send of
+   that letter): the draft must be in the user's own mailbox
+   (`cms_comm_account_id`); `cms_comm_draft_check` (no side effects, preview
+   with a dead button, `check_token`) → show the person → 
+   `cms_comm_draft_send` with `check_token`, a new `idempotency_key` and
+   `confirm=true`. On a timeout never resend blindly: read
+   `cms_comm_send_status` by the key. `sent` means accepted by the outgoing
+   server, not delivered; `unknown` is never resent.
 
-No tool sends a letter or launches a campaign: employees do it in the CRM.
-Everything saved is marked "Подготовлено ИИ" with the OAuth client name by the
-server. Contacts are masked unless `include_contacts=true`; personal client
-links are never returned and must never be opened. Scopes:
-`cms.company.read`, `cms.activity.read`, `cms.communication.read`,
-`cms.communication.send`. Limits are a site setting (`communication.aiLimits`:
-20 rows per call, 100 per user and day).
+No tool launches a campaign. Everything saved or sent is marked "Подготовлено
+ИИ" / "отправлено ИИ через API" with the OAuth client name by the server.
+Contacts are masked unless `include_contacts=true`; personal client links are
+never returned and must never be opened. Mailing topics and presentations can
+be managed by API (`cms_comm_topic_create/update` — administrator only;
+`cms_proposal_presentation_create/update`); a send never creates a topic.
+Scopes: `cms.company.read`, `cms.activity.read`, `cms.communication.read`;
+`cms.communication.write` (drafts, campaigns, topics, checks);
+`cms.communication.mail_send` (sending, granted separately — preparing never
+implies it); `cms.proposal.write` (presentations). `cms.communication.send`
+is SMS and calls. Limits are a site setting (`communication.aiLimits`: 20 rows
+per call, 100 drafts and recipients and 20 API sends per user and day, 30 days
+between offers to a client).
 
 ## Tool catalog versioning and client cache
 
