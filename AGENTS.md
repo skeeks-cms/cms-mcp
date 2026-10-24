@@ -129,6 +129,14 @@ letters with an offer. Order of work:
    again. `test_mode=true` works only for the site's test pairs
    (`communication.aiTestRecipients`) and administrators, and skips only the
    "recently written / offered" checks.
+8. A first offer to one chosen person (own subject and text, a presentation,
+   a screenshot) is `purpose: "individual_offer"`, chosen explicitly: it
+   needs `cms_comm_topic_id` (kept only for the opt-out checks) and `offer`,
+   carries no "Отписаться" line or List-Unsubscribe, and every opt-out,
+   complaint, bounce and repetition still blocks it. Never for campaigns.
+   Do not write a signature: drafts get the sender's mailbox signature from
+   the CRM once (`cms_comm_account_list` → `signature_html`); the check
+   shows it (`signature`) and the opt-out (`unsubscribe`).
 
 No tool launches a campaign. Everything saved or sent is marked "Подготовлено
 ИИ" / "отправлено ИИ через API" with the OAuth client name by the server.
