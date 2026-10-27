@@ -141,7 +141,7 @@ class RecordsHistorySource implements HistorySourceInterface
             'at' => (int)$deal->created_at,
             'type' => 'deal',
             'subtype' => $active ? 'active' : 'inactive',
-            'title' => 'Сделка «'.$context->text((string)$deal->name, 200).'»',
+            'title' => 'Услуга «'.$context->text((string)$deal->name, 200).'»',
             'summary' => implode(', ', $parts),
             'actor' => CrmActor::user($deal->created_by ? (int)$deal->created_by : null, $context),
             'details' => [

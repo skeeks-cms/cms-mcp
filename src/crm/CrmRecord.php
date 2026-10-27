@@ -37,7 +37,7 @@ class CrmRecord
     public static function types(): array
     {
         return [
-            self::LEAD => ['class' => CmsLead::class, 'controller' => 'cms/admin-cms-lead', 'title' => 'Лид'],
+            self::LEAD => ['class' => CmsLead::class, 'controller' => 'cms/admin-cms-lead', 'title' => 'Сделка'],
             self::COMPANY => ['class' => CmsCompany::class, 'controller' => 'cms/admin-cms-company', 'title' => 'Компания'],
             self::CLIENT => ['class' => CmsUser::class, 'controller' => 'cms/admin-user', 'title' => 'Клиент'],
         ];
