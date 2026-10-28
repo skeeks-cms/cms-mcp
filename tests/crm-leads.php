@@ -111,6 +111,46 @@ try {
     check($marked > 0, 'Free: the new company is marked as a possible duplicate');
     $guard::$mode = null;
 
+    // --- П2а+: the levels of the CRM in the API, as in its screens (crm\CrmAccess).
+    $employee = null;
+    foreach (CmsUser::find()->andWhere(['is_worker' => 1, 'is_active' => 1])->andWhere(['<>', 'id', (int)$admin->id])->orderBy(['id' => SORT_ASC])->each() as $worker) {
+        if (!Yii::$app->authManager->checkAccess((int)$worker->id, skeeks\cms\rbac\CmsManager::PERMISSION_ROLE_ADMIN_ACCESS)
+            && Yii::$app->authManager->checkAccess((int)$worker->id, 'cms/admin-company')
+            && !skeeks\cms\models\CmsDepartment::subordinateIds((int)$worker->id)) {
+            $employee = $worker;
+            break;
+        }
+    }
+    check($employee !== null, 'The stand has an employee without administrator rights');
+    $levels = new CmsCompany(['name' => 'П2а+ уровни '.$suffix]);
+    check($levels->save(false), 'A company of the administrator');
+    (new skeeks\cms\models\CmsCompany2manager(['cms_company_id' => $levels->id, 'cms_user_id' => $admin->id]))->save(false);
+    (new skeeks\cms\models\CmsCompany2manager(['cms_company_id' => $levels->id, 'cms_user_id' => $employee->id]))->save(false);
+    $setLevel = fn(string $level) => skeeks\cms\models\CmsCompany2manager::updateAll(['access_level' => $level],
+        ['cms_company_id' => $levels->id, 'cms_user_id' => $employee->id]);
+    $own = run('cms_company_phone_create', ['cms_company_id' => $levels->id, 'value' => '+7 914 '.sprintf('%03d', hexdec(substr($suffix, 0, 3)) % 1000).'-11-22']);
+    $setLevel('deal');
+    Yii::$app->user->setIdentity($employee);
+    $message = rejects(fn() => run('cms_company_update', ['id' => $levels->id, 'name' => 'Переименована']), '"deal": changing the company is refused');
+    check(mb_strpos($message, 'Свои сделки') !== false, 'The refusal names the level and what it allows');
+    check(mb_strpos(rejects(fn() => run('cms_company_phone_update', ['id' => (int)$own['id'], 'name' => 'Другой']), '"deal": changing a phone is refused'), 'Свои сделки') !== false, 'The refusal is by the level');
+    check(mb_strpos(rejects(fn() => run('cms_company_address_create', ['cms_company_id' => $levels->id, 'value' => 'Москва']), '"deal": adding an address is refused'), 'Свои сделки') !== false, 'The refusal is by the level');
+    check(mb_strpos(rejects(fn() => run('cms_company_link_create', ['cms_company_id' => $levels->id, 'url' => 'https://example-'.$suffix.'.ru']), '"deal": adding a link is refused'), 'Свои сделки') !== false, 'The refusal is by the level');
+    $added = run('cms_company_phone_create', ['cms_company_id' => $levels->id, 'value' => '+7 914 '.sprintf('%03d', hexdec(substr($suffix, 3, 3)) % 1000).'-33-44']);
+    check(!empty($added['id']), '"deal": a new phone is added');
+    $addedEmail = run('cms_company_email_create', ['cms_company_id' => $levels->id, 'value' => 'deal-'.$email]);
+    check(!empty($addedEmail['id']), '"deal": a new email is added');
+    $setLevel('edit');
+    $renamed = run('cms_company_update', ['id' => $levels->id, 'name' => 'П2а+ правка '.$suffix]);
+    check((string)CmsCompany::findOne($levels->id)->name === 'П2а+ правка '.$suffix, '"edit": the company data changes');
+    run('cms_company_phone_update', ['id' => (int)$own['id'], 'name' => 'Рабочий']);
+    check(true, '"edit": a phone changes');
+    rejects(fn() => run('cms_company_update', ['id' => $levels->id, 'manager_ids' => [(int)$employee->id]]),
+        '"edit": the responsible employees are changed by the main responsible only');
+    Yii::$app->user->setIdentity($admin);
+    run('cms_company_update', ['id' => $levels->id, 'manager_ids' => [(int)$admin->id, (int)$employee->id]]);
+    check(true, 'The administrator changes the responsible employees');
+
     echo 'OK '.$checks." checks\n";
 } catch (Throwable $e) {
     echo 'FAIL after '.$checks.' checks: '.get_class($e).': '.$e->getMessage().' ('.$e->getFile().':'.$e->getLine().")\n";

@@ -62,6 +62,10 @@ class CmsCompanyService extends AbstractCmsService
     {
         $company = $this->findAllowed(CmsCompany::class, $arguments);
         $source = array_merge($arguments, (array)($arguments['attributes'] ?? []));
+        $this->assertCanEditClient($company);
+        if (array_key_exists('manager_ids', $source)) {
+            $this->assertCanManageAccess($company);
+        }
         $transaction = \Yii::$app->db->beginTransaction();
         try {
             $this->applyWritable($company, $arguments, $this->companyWritable);
@@ -236,6 +240,9 @@ class CmsCompanyService extends AbstractCmsService
             ->column());
         $unavailableCompanyIds = array_values(array_diff($companyIds, $allowedCompanyIds));
         if ($unavailableCompanyIds) { throw new Exception('Companies not found or unavailable: '.implode(', ', $unavailableCompanyIds).'.'); }
+        foreach ($companyIds as $companyId) {
+            $this->assertCanEditClient(['company', $companyId]);
+        }
 
         $categoryMap = array_fill_keys($companyIds, []);
         $links = CmsCompany2category::find()
@@ -404,8 +411,51 @@ class CmsCompanyService extends AbstractCmsService
         $this->save($model, 'Company contact validation failed');
     }
     protected function childList(string $class, array $a): array { $q = $class::find(); $this->applyFilters($q, $class, $a, ['cms_company_id']); return $this->page($q->orderBy(['sort' => SORT_ASC, 'id' => SORT_ASC]), $a); }
-    protected function childCreate(string $class, array $a): array { $m = new $class(); $m->loadDefaultValues(); $this->applyWritable($m, $a, $m->safeAttributes()); return $this->recordData($this->save($m, 'Company contact validation failed')); }
-    protected function childUpdate(string $class, array $a): array { $m = $this->find($class, $a); $this->applyWritable($m, $a, $m->safeAttributes()); return $this->recordData($this->save($m, 'Company contact validation failed')); }
+    protected function childCreate(string $class, array $a): array { $m = new $class(); $m->loadDefaultValues(); $this->applyWritable($m, $a, $m->safeAttributes()); $this->assertCanEditClient($m); return $this->recordData($this->save($m, 'Company contact validation failed')); }
+    protected function childUpdate(string $class, array $a): array { $m = $this->find($class, $a); $this->assertCanEditClient($m); $this->applyWritable($m, $a, $m->safeAttributes()); $this->assertCanEditClient($m); return $this->recordData($this->save($m, 'Company contact validation failed')); }
+
+    /**
+     * П2а+: the levels of the CRM, as in its screens (crm\CrmAccess): the
+     * company data is changed from the level "edit"; "Свои сделки" only reads it
+     * and adds a new phone or email (assertCanAddContact()). An older core
+     * without the levels changes nothing here.
+     *
+     * @param \yii\base\Model|array $model a company, a row with cms_company_id, or ['company', id]
+     */
+    protected function assertCanEditClient($model): void
+    {
+        $access = $this->crmAccess();
+        if ($access && !$access->canEditClientRecord((int)\Yii::$app->user->id, $model)) {
+            throw new Exception('Менять данные этого клиента нельзя: с уровнем доступа «Свои сделки» можно смотреть карточку, '
+                .'связываться с клиентом и добавлять новый телефон или email. Править и удалять данные компании может уровень '
+                .'«Свои сделки и данные компании» или выше — его выдаёт основной ответственный клиента.');
+        }
+    }
+
+    /** A new phone or email: every level that sees the client («Свои сделки» included). */
+    protected function assertCanAddContact($model): void
+    {
+        $access = $this->crmAccess();
+        if ($access && method_exists($access, 'canAddClientContact') && !$access->canAddClientContact((int)\Yii::$app->user->id, $model)) {
+            throw new Exception('Компания не найдена или недоступна вам.');
+        }
+    }
+
+    /** Responsible employees: the main responsible, his leaders, an administrator («Доступ к клиенту»). */
+    protected function assertCanManageAccess(CmsCompany $company): void
+    {
+        $access = $this->crmAccess();
+        if ($access && !$access->canManageAccess((int)\Yii::$app->user->id, 'company', (int)$company->id)) {
+            throw new Exception('Ответственных этой компании меняют основной ответственный, его руководитель или администратор.');
+        }
+    }
+
+    private function crmAccess(): ?\skeeks\cms\crm\CrmAccess
+    {
+        $class = \skeeks\cms\crm\CrmAccess::class;
+
+        return class_exists($class) && method_exists($class, 'canEditClientRecord') ? $class::instance() : null;
+    }
 
     /**
      * A phone or an email stays with its company: moving it to another one
@@ -415,6 +465,7 @@ class CmsCompanyService extends AbstractCmsService
     protected function contactUpdate(string $class, array $a): array
     {
         $m = $this->find($class, $a);
+        $this->assertCanEditClient($m);
         $source = array_merge($a, (array)($a['attributes'] ?? []));
         if (array_key_exists('cms_company_id', $source) && (int)$source['cms_company_id'] !== (int)$m->cms_company_id) {
             throw new \InvalidArgumentException('Перенести контакт в другую компанию через API нельзя. '
@@ -434,6 +485,8 @@ class CmsCompanyService extends AbstractCmsService
         $m = $insert ? new $class() : $this->find($class, $a);
         if ($insert) { $m->loadDefaultValues(); }
         $this->applyWritable($m, $a, $m->safeAttributes());
+        // П2а+: a new phone or email — every level that sees the company; changing one — from "edit".
+        $insert ? $this->assertCanAddContact($m) : $this->assertCanEditClient($m);
         $others = [];
         $guard = \skeeks\cms\crm\CrmDuplicateGuard::class;
         if (class_exists($guard) && $guard::ready() && ($insert || $m->isAttributeChanged('value', false))) {
