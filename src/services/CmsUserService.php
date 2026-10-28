@@ -27,6 +27,27 @@ class CmsUserService extends AbstractCmsService
     public function userData(CmsUser $user): array
     {
         $data = $this->recordData($user); foreach (['auth_key', 'password_hash', 'password_reset_token', 'access_token'] as $key) { unset($data[$key]); }
-        $data['display_name'] = $user->displayName; return $data;
+        $data['display_name'] = $user->displayName; return $this->hideProtectionReason($user, $data);
+    }
+
+    /**
+     * The protection reason of a client person names his personal services and
+     * payments: only for those who manage the access or see his personal orders
+     * (CrmAccess::wholeClientLevel(): the access to the person himself, not to
+     * his companies).
+     */
+    protected function hideProtectionReason(CmsUser $user, array $data): array
+    {
+        if (!array_key_exists('crm_protection_reason', $data) || $user->is_worker || !class_exists(\skeeks\cms\crm\CrmAccess::class)) {
+            return $data;
+        }
+        $access = \skeeks\cms\crm\CrmAccess::instance();
+        $viewer = \Yii::$app->user->identity;
+        $code = \skeeks\cms\models\CmsCrmAccessRequest::RECORD_CLIENT;
+        if (!$access->isAdmin($viewer) && !$access->canManageAccess($viewer, $code, (int)$user->id)
+            && !\skeeks\cms\crm\CrmAccess::seesWholeClient($access->wholeClientLevel($viewer, $code, (int)$user->id))) {
+            $data['crm_protection_reason'] = null;
+        }
+        return $data;
     }
 }
