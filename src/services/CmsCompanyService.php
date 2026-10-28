@@ -463,8 +463,8 @@ class CmsCompanyService extends AbstractCmsService
 
     /**
      * «Под защитой: действующая услуга …, последний платёж …» names services and
-     * payments: only for those who manage the access or see the client with
-     * "edit" and above (ClientTransferActions of the core does the same).
+     * payments: only for those who manage the access or see the whole client
+     * (CrmAccess::seesWholeClient(): "full"; "edit" only edits the data).
      */
     protected function hideProtectionReason(CmsCompany $company, array $data): array
     {
@@ -475,7 +475,7 @@ class CmsCompanyService extends AbstractCmsService
         $user = \Yii::$app->user->identity;
         $code = \skeeks\cms\models\CmsCrmAccessRequest::RECORD_COMPANY;
         if (!$access->isAdmin($user) && !$access->canManageAccess($user, $code, (int)$company->id)
-            && !in_array($access->clientDataLevel($user, $code, (int)$company->id), [\skeeks\cms\crm\CrmAccess::LEVEL_EDIT, \skeeks\cms\crm\CrmAccess::LEVEL_FULL], true)) {
+            && !\skeeks\cms\crm\CrmAccess::seesWholeClient($access->clientDataLevel($user, $code, (int)$company->id))) {
             $data['crm_protection_reason'] = null;
         }
         return $data;
