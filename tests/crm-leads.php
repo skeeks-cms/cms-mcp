@@ -136,10 +136,15 @@ try {
     check(mb_strpos(rejects(fn() => run('cms_company_phone_update', ['id' => (int)$own['id'], 'name' => 'Другой']), '"deal": changing a phone is refused'), 'Свои сделки') !== false, 'The refusal is by the level');
     check(mb_strpos(rejects(fn() => run('cms_company_address_create', ['cms_company_id' => $levels->id, 'value' => 'Москва']), '"deal": adding an address is refused'), 'Свои сделки') !== false, 'The refusal is by the level');
     check(mb_strpos(rejects(fn() => run('cms_company_link_create', ['cms_company_id' => $levels->id, 'url' => 'https://example-'.$suffix.'.ru']), '"deal": adding a link is refused'), 'Свои сделки') !== false, 'The refusal is by the level');
-    $added = run('cms_company_phone_create', ['cms_company_id' => $levels->id, 'value' => '+7 914 '.sprintf('%03d', hexdec(substr($suffix, 3, 3)) % 1000).'-33-44']);
-    check(!empty($added['id']), '"deal": a new phone is added');
-    $addedEmail = run('cms_company_email_create', ['cms_company_id' => $levels->id, 'value' => 'deal-'.$email]);
-    check(!empty($addedEmail['id']), '"deal": a new email is added');
+    $newPhone = '+7 914 '.sprintf('%03d', hexdec(substr($suffix, 3, 3)) % 1000).'-33-44';
+    check(mb_strpos(rejects(fn() => run('cms_company_phone_create', ['cms_company_id' => $levels->id, 'value' => $newPhone]), '"deal": a phone without his deal is refused'), 'своей сделки') !== false,
+        'The refusal says a new contact comes from the own deal');
+    $ownDeal = new skeeks\cms\models\CmsLead(['name' => 'П2а+ своя '.$suffix, 'cms_site_id' => $siteId, 'cms_company_id' => $levels->id, 'executor_id' => $employee->id, 'status' => 'in_work']);
+    check($ownDeal->save(false), 'A deal of the employee');
+    $added = run('cms_company_phone_create', ['cms_company_id' => $levels->id, 'value' => $newPhone, 'cms_lead_id' => (int)$ownDeal->id]);
+    check(!empty($added['id']), '"deal": a new phone is added from his deal');
+    $addedEmail = run('cms_company_email_create', ['cms_company_id' => $levels->id, 'value' => 'deal-'.$email, 'cms_lead_id' => (int)$ownDeal->id]);
+    check(!empty($addedEmail['id']), '"deal": a new email is added from his deal');
     $setLevel('edit');
     $renamed = run('cms_company_update', ['id' => $levels->id, 'name' => 'П2а+ правка '.$suffix]);
     check((string)CmsCompany::findOne($levels->id)->name === 'П2а+ правка '.$suffix, '"edit": the company data changes');

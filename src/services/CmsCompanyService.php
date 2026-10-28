@@ -432,12 +432,16 @@ class CmsCompanyService extends AbstractCmsService
         }
     }
 
-    /** A new phone or email: every level that sees the client («Свои сделки» included). */
-    protected function assertCanAddContact($model): void
+    /**
+     * A new phone or email: "edit" and above — always; «Свои сделки» — only from
+     * a deal of this company he works on (cms_lead_id).
+     */
+    protected function assertCanAddContact($model, ?int $leadId = null): void
     {
         $access = $this->crmAccess();
-        if ($access && method_exists($access, 'canAddClientContact') && !$access->canAddClientContact((int)\Yii::$app->user->id, $model)) {
-            throw new Exception('Компания не найдена или недоступна вам.');
+        if ($access && method_exists($access, 'canAddClientContact') && !$access->canAddClientContact((int)\Yii::$app->user->id, $model, $leadId)) {
+            throw new Exception('Добавить телефон или email этой компании нельзя: с уровнем доступа «Свои сделки» новый контакт '
+                .'добавляется только из своей сделки — передайте cms_lead_id своей сделки этой компании.');
         }
     }
 
@@ -486,7 +490,7 @@ class CmsCompanyService extends AbstractCmsService
         if ($insert) { $m->loadDefaultValues(); }
         $this->applyWritable($m, $a, $m->safeAttributes());
         // П2а+: a new phone or email — every level that sees the company; changing one — from "edit".
-        $insert ? $this->assertCanAddContact($m) : $this->assertCanEditClient($m);
+        $insert ? $this->assertCanAddContact($m, (int)($a['cms_lead_id'] ?? 0) ?: null) : $this->assertCanEditClient($m);
         $others = [];
         $guard = \skeeks\cms\crm\CrmDuplicateGuard::class;
         if (class_exists($guard) && $guard::ready() && ($insert || $m->isAttributeChanged('value', false))) {
