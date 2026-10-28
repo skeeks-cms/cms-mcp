@@ -12,9 +12,22 @@ use yii\db\Expression;
 
 class CmsCommunicationService extends AbstractCmsService
 {
-    public function callList(array $a): array { $q=CmsTelephonyCall::find();$this->applyFilters($q,CmsTelephonyCall::class,$a,['cms_company_id','cms_telephony_provider_id','cms_worker_user_id','cms_user_id','direction','status','failed_reason']);$this->applySearch($q,CmsTelephonyCall::class,$a,['client_phone','provider_call_id']);$this->applyDateRange($q,CmsTelephonyCall::class,$a,'created_at');return $this->page($q->orderBy(['id'=>SORT_DESC]),$a,[$this,'callData']); }
-    public function callGet(array $a): array { return $this->callData($this->find(CmsTelephonyCall::class,$a),true); }
-    public function callStats(array $a): array { $groups=['status'=>'status','direction'=>'direction','provider'=>'cms_telephony_provider_id','worker'=>'cms_worker_user_id','company'=>'cms_company_id','day'=>new Expression('DATE(FROM_UNIXTIME(created_at))')];$metrics=['count'=>'COUNT(*)','duration'=>'SUM(duration)'];$group=$a['group_by']??'status';$metric=$a['metric']??'count';if(!isset($groups[$group],$metrics[$metric])){throw new Exception('Unsupported telephony statistics slice.');}$q=CmsTelephonyCall::find();$this->applyFilters($q,CmsTelephonyCall::class,$a,['cms_company_id','cms_telephony_provider_id','cms_worker_user_id','cms_user_id','direction','status']);$this->applyDateRange($q,CmsTelephonyCall::class,$a,'created_at');$field=$groups[$group];return ['group_by'=>$group,'metric'=>$metric,'items'=>$q->select(['group_value'=>$field,'value'=>new Expression($metrics[$metric])])->groupBy($field)->asArray()->all()]; }
+    public function callList(array $a): array { $q=$this->callQuery();$this->applyFilters($q,CmsTelephonyCall::class,$a,['cms_company_id','cms_telephony_provider_id','cms_worker_user_id','cms_user_id','direction','status','failed_reason']);$this->applySearch($q,CmsTelephonyCall::class,$a,['client_phone','provider_call_id']);$this->applyDateRange($q,CmsTelephonyCall::class,$a,'created_at');return $this->page($q->orderBy(['id'=>SORT_DESC]),$a,[$this,'callData']); }
+    public function callGet(array $a): array { $id=(int)($a['id']??0);$m=$id?$this->callQuery()->andWhere([CmsTelephonyCall::tableName().'.id'=>$id])->one():null;if(!$m){throw new Exception('CmsTelephonyCall #'.$id.' not found or unavailable.');}return $this->callData($m,true); }
+    public function callStats(array $a): array { $groups=['status'=>'status','direction'=>'direction','provider'=>'cms_telephony_provider_id','worker'=>'cms_worker_user_id','company'=>'cms_company_id','day'=>new Expression('DATE(FROM_UNIXTIME(created_at))')];$metrics=['count'=>'COUNT(*)','duration'=>'SUM(duration)'];$group=$a['group_by']??'status';$metric=$a['metric']??'count';if(!isset($groups[$group],$metrics[$metric])){throw new Exception('Unsupported telephony statistics slice.');}$q=$this->callQuery();$this->applyFilters($q,CmsTelephonyCall::class,$a,['cms_company_id','cms_telephony_provider_id','cms_worker_user_id','cms_user_id','direction','status']);$this->applyDateRange($q,CmsTelephonyCall::class,$a,'created_at');$field=$groups[$group];return ['group_by'=>$group,'metric'=>$metric,'items'=>$q->select(['group_value'=>$field,'value'=>new Expression($metrics[$metric])])->groupBy($field)->asArray()->all()]; }
+
+    /**
+     * Calls the employee may see: the forManager() rule of the call journal, and
+     * a call tied to a deal only for those who see that deal (П2а+: with
+     * «Свои сделки» a call on another employee's deal of the client is hidden).
+     */
+    protected function callQuery()
+    {
+        $user = \Yii::$app->user->identity;
+        $t = CmsTelephonyCall::tableName();
+        return CmsTelephonyCall::find()->forManager($user)->andWhere(['or', [$t.'.cms_lead_id' => null],
+            [$t.'.cms_lead_id' => \skeeks\cms\models\CmsLead::find()->forManager($user)->select(\skeeks\cms\models\CmsLead::tableName().'.id')]]);
+    }
 
     public function callStart(array $a): array
     {

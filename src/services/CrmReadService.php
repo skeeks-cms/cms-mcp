@@ -217,7 +217,7 @@ class CrmReadService extends AbstractCmsService
             }, $leads->orderBy([CmsLead::tableName().'.id' => SORT_DESC])->limit(5)->all())];
             $data['contacts'] = $this->contacts('cms_company_email', 'cms_company_phone', 'cms_company_id', (int)$m->id, $context);
             $data['contact_persons_count'] = (int)(new Query())->from('{{%cms_company2user}}')->andWhere(['cms_company_id' => $m->id])->count();
-            $owners[] = ['model_code' => CmsLead::class, 'model_id' => CmsLead::find()->select('id')->andWhere(['cms_company_id' => $m->id])];
+            $owners[] = ['model_code' => CmsLead::class, 'model_id' => CrmRecord::visibleQuery(CrmRecord::LEAD)->select(CmsLead::tableName().'.id')->andWhere([CmsLead::tableName().'.cms_company_id' => $m->id])];
             $cooperationOf = ['cms_company_id' => (int)$m->id];
         } elseif ($m instanceof CmsLead) {
             $data['status'] = $m->getStatusName();
@@ -250,7 +250,7 @@ class CrmReadService extends AbstractCmsService
             $data['companies'] = array_map(function (CmsCompany $c) use ($context) { return (new CrmRecord(CrmRecord::COMPANY, $c))->reference($context); },
                 $companyIds ? CmsCompany::find()->andWhere(['id' => $companyIds])->limit(10)->all() : []);
             $data['contacts'] = $this->contacts('cms_user_email', 'cms_user_phone', 'cms_user_id', (int)$m->id, $context);
-            $owners[] = ['model_code' => CmsLead::class, 'model_id' => CmsLead::find()->select('id')->andWhere(['cms_user_id' => $m->id])];
+            $owners[] = ['model_code' => CmsLead::class, 'model_id' => CrmRecord::visibleQuery(CrmRecord::LEAD)->select(CmsLead::tableName().'.id')->andWhere([CmsLead::tableName().'.cms_user_id' => $m->id])];
             $cooperationOf = ['cms_user_id' => (int)$m->id];
         }
 
@@ -298,26 +298,30 @@ class CrmReadService extends AbstractCmsService
     {
         [$column, $id] = [key($owner), current($owner)];
         $now = time();
-        $deals = CmsDeal::find()->andWhere([$column => $id]);
+        // П2а+: services, bills, payments and tasks as the employee sees them (forManager(): with «Свои сделки» only his own).
+        $user = \Yii::$app->user->identity;
+        $deals = CmsDeal::find()->forManager($user)->andWhere([CmsDeal::tableName().'.'.$column => $id]);
         $result = [
             'deals_count' => (int)(clone $deals)->count(),
-            'active_deals_count' => (int)(clone $deals)->andWhere(['is_active' => 1])->andWhere(['or', ['end_at' => null], ['>', 'end_at', $now]])->count(),
-            'last_deal_end_at' => ($v = (clone $deals)->andWhere(['<=', 'end_at', $now])->max('end_at')) ? $this->date((int)$v) : null,
+            'active_deals_count' => (int)(clone $deals)->andWhere([CmsDeal::tableName().'.is_active' => 1])->andWhere(['or', [CmsDeal::tableName().'.end_at' => null], ['>', CmsDeal::tableName().'.end_at', $now]])->count(),
+            'last_deal_end_at' => ($v = (clone $deals)->andWhere(['<=', CmsDeal::tableName().'.end_at', $now])->max(CmsDeal::tableName().'.end_at')) ? $this->date((int)$v) : null,
         ];
         $endedAt = $v ? (int)$v : 0;
         if (class_exists(RecordsHistorySource::SHOP_BILL)) {
             $bill = RecordsHistorySource::SHOP_BILL;
-            $paid = $bill::find()->andWhere([$column => $id])->andWhere(['not', ['paid_at' => null]]);
-            $row = (clone $paid)->select(['c' => new Expression('COUNT(*)'), 's' => new Expression('SUM(amount)'), 'f' => new Expression('MIN(paid_at)'), 'l' => new Expression('MAX(paid_at)')])->asArray()->one();
+            $bt = $bill::tableName();
+            $paid = $bill::find()->forManager($user)->andWhere([$bt.'.'.$column => $id])->andWhere(['not', [$bt.'.paid_at' => null]]);
+            $row = (clone $paid)->select(['c' => new Expression('COUNT(*)'), 's' => new Expression('SUM('.$bt.'.amount)'), 'f' => new Expression('MIN('.$bt.'.paid_at)'), 'l' => new Expression('MAX('.$bt.'.paid_at)')])->asArray()->one();
             $result['paid_bills_count'] = (int)$row['c'];
             $result['paid_bills_amount'] = (float)$row['s'];
             $result['first_paid_at'] = $row['f'] ? $this->date((int)$row['f']) : null;
             $result['last_paid_at'] = $row['l'] ? $this->date((int)$row['l']) : null;
-            $result['unpaid_bills_count'] = (int)$bill::find()->andWhere([$column => $id, 'paid_at' => null, 'closed_at' => null])->count();
+            $result['unpaid_bills_count'] = (int)$bill::find()->forManager($user)->andWhere([$bt.'.'.$column => $id, $bt.'.paid_at' => null, $bt.'.closed_at' => null])->count();
             $endedAt = max($endedAt, (int)$row['l']);
             $payment = RecordsHistorySource::SHOP_PAYMENT;
-            $row = $payment::find()->andWhere([$column => $id, 'is_debit' => 1])
-                ->select(['c' => new Expression('COUNT(*)'), 's' => new Expression('SUM(amount)'), 'l' => new Expression('MAX(created_at)')])->asArray()->one();
+            $pt = $payment::tableName();
+            $row = $payment::find()->forManager($user)->andWhere([$pt.'.'.$column => $id, $pt.'.is_debit' => 1])
+                ->select(['c' => new Expression('COUNT(*)'), 's' => new Expression('SUM('.$pt.'.amount)'), 'l' => new Expression('MAX('.$pt.'.created_at)')])->asArray()->one();
             $result['incoming_payments_count'] = (int)$row['c'];
             $result['incoming_payments_amount'] = (float)$row['s'];
             $result['last_payment_at'] = $row['l'] ? $this->date((int)$row['l']) : null;
@@ -332,8 +336,9 @@ class CrmReadService extends AbstractCmsService
     protected function openTasks(CrmRecord $record, CrmReadContext $context): array
     {
         $column = [CrmRecord::LEAD => 'cms_lead_id', CrmRecord::COMPANY => 'cms_company_id', CrmRecord::CLIENT => 'cms_user_id'][$record->type];
-        $q = CmsTask::find()->andWhere([$column => $record->getId()])->andWhere(['not', ['status' => $this->taskDoneStatuses]]);
-        $next = (clone $q)->andWhere(['not', ['plan_end_at' => null]])->orderBy(['plan_end_at' => SORT_ASC])->one();
+        $tt = CmsTask::tableName();
+        $q = CmsTask::find()->forManager(\Yii::$app->user->identity)->andWhere([$tt.'.'.$column => $record->getId()])->andWhere(['not', [$tt.'.status' => $this->taskDoneStatuses]]);
+        $next = (clone $q)->andWhere(['not', [$tt.'.plan_end_at' => null]])->orderBy([$tt.'.plan_end_at' => SORT_ASC])->one();
         return [
             'open_count' => (int)$q->count(),
             'next' => $next ? ['id' => (int)$next->id, 'name' => $context->text((string)$next->name, 200), 'plan_end_at' => $this->date((int)$next->plan_end_at), 'status' => (string)$next->status] : null,

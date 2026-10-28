@@ -454,10 +454,30 @@ class CmsCompanyService extends AbstractCmsService
 
     public function companyData(CmsCompany $company, bool $details = false): array
     {
-        if (!$details) { return $this->recordData($company); }
-        $data = $this->withRelations($company, ['status', 'categories', 'phones', 'emails', 'addresses', 'links', 'contractors']);
+        if (!$details) { return $this->hideProtectionReason($company, $this->recordData($company)); }
+        $data = $this->hideProtectionReason($company, $this->withRelations($company, ['status', 'categories', 'phones', 'emails', 'addresses', 'links', 'contractors']));
         $data['managers'] = array_map([$this, 'userReference'], $company->managers);
         $data['users'] = array_map([$this, 'userReference'], $company->users);
+        return $data;
+    }
+
+    /**
+     * «Под защитой: действующая услуга …, последний платёж …» names services and
+     * payments: only for those who manage the access or see the client with
+     * "edit" and above (ClientTransferActions of the core does the same).
+     */
+    protected function hideProtectionReason(CmsCompany $company, array $data): array
+    {
+        if (!array_key_exists('crm_protection_reason', $data) || !class_exists(\skeeks\cms\crm\CrmAccess::class)) {
+            return $data;
+        }
+        $access = \skeeks\cms\crm\CrmAccess::instance();
+        $user = \Yii::$app->user->identity;
+        $code = \skeeks\cms\models\CmsCrmAccessRequest::RECORD_COMPANY;
+        if (!$access->isAdmin($user) && !$access->canManageAccess($user, $code, (int)$company->id)
+            && !in_array($access->clientDataLevel($user, $code, (int)$company->id), [\skeeks\cms\crm\CrmAccess::LEVEL_EDIT, \skeeks\cms\crm\CrmAccess::LEVEL_FULL], true)) {
+            $data['crm_protection_reason'] = null;
+        }
         return $data;
     }
 
