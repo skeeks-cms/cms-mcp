@@ -171,6 +171,140 @@ try {
     run('cms_company_update', ['id' => $levels->id, 'manager_ids' => [(int)$admin->id, (int)$employee->id]]);
     check(true, 'The administrator changes the responsible employees');
 
+    // ================= Deals (cms_lead_*, П2в) =================
+    Yii::$app->user->setIdentity($admin);
+    $stages = run('cms_lead_stage_list', []);
+    $pipelines = $stages['pipelines'];
+    check($pipelines && isset($pipelines[0]['stages']), 'Pipelines with stages are listed');
+    $mainPipeline = null;
+    foreach ($pipelines as $item) { if ($item['is_main']) { $mainPipeline = $item; } }
+    check($mainPipeline && $mainPipeline['stages'], 'The main pipeline has stages');
+    run('cms_lead_reject_reason_list', []);
+
+    // A new client by a pasted line, an expected amount, a repeated event.
+    $leadEmail = 'lead-'.$suffix.'@example-p2v.ru';
+    $line = 'Сделочная '.$suffix.', +7 901 '.substr($phone, -7, 3).'-'.substr($phone, -4, 2).'-'.substr($phone, -2).', '.$leadEmail;
+    $first = run('cms_lead_create', ['client_line' => $line, 'amount' => 150000, 'source_type' => 'api', 'source_ref' => 'p2v-'.$suffix, 'description' => 'Сайт под ключ']);
+    check($first['created'] === true && $first['lead']['id'], 'A deal is created with a new client from a line');
+    $leadId = (int)$first['lead']['id'];
+    check($first['lead']['amount'] === 150000.0 && $first['lead']['deal_amount'] === null, 'amount is the expected amount, deal_amount is empty');
+    check($first['lead']['status'] === 'in_work' && $first['lead']['executor']['id'] === (int)$admin->id, 'The deal is in work at the creator');
+    check($first['lead']['company'] && $first['lead']['company']['visible'] && mb_strpos($first['lead']['company']['name'], 'Сделочная') === 0, 'The company is created from the line');
+    $leadCompanyId = (int)$first['lead']['company']['id'];
+    check((new yii\db\Query())->from('{{%cms_company_email}}')->where(['cms_company_id' => $leadCompanyId, 'value' => $leadEmail])->exists(), 'The email of the line went to the company');
+    $again = run('cms_lead_create', ['client_line' => $line, 'source_type' => 'api', 'source_ref' => 'p2v-'.$suffix]);
+    check($again['created'] === false && !empty($again['repeated']) && (int)$again['lead']['id'] === $leadId, 'The same source_ref returns the first deal');
+    $key = run('cms_lead_create', ['name' => 'Ключ '.$suffix, 'idempotency_key' => 'k-'.$suffix]);
+    $keyAgain = run('cms_lead_create', ['name' => 'Ключ '.$suffix, 'idempotency_key' => 'k-'.$suffix]);
+    check($key['created'] && !empty($keyAgain['repeated']) && $keyAgain['lead']['id'] === $key['lead']['id'], 'The same idempotency_key returns the first deal');
+
+    // The same client again: a strong match asks for a choice, open deals need confirm.
+    $match = run('cms_lead_create', ['client_line' => 'Другое имя '.$suffix.', '.$leadEmail]);
+    check($match['created'] === false && $match['reason'] === 'client_exists' && $match['matches'][0]['visible'] === true
+        && (int)$match['matches'][0]['id'] === $leadCompanyId, 'A strong match with an own company asks to choose it');
+    $dup = run('cms_lead_duplicate_check', ['line' => 'Что угодно, '.$leadEmail]);
+    check($dup['has_duplicates'] && (int)$dup['open_leads'][0]['id'] === $leadId, 'cms_lead_duplicate_check takes a line and shows the open deal');
+    $open = run('cms_lead_create', ['cms_company_id' => $leadCompanyId, 'name' => 'Вторая потребность '.$suffix]);
+    check($open['created'] === false && $open['reason'] === 'open_leads' && (int)$open['open_leads'][0]['id'] === $leadId, 'Open deals of the client need confirmation');
+    $second = run('cms_lead_create', ['cms_company_id' => $leadCompanyId, 'name' => 'Вторая потребность '.$suffix, 'confirm' => true]);
+    check($second['created'] && (int)$second['lead']['company']['id'] === $leadCompanyId, 'With confirm a second deal of the same client is created');
+    $other = run('cms_lead_create', ['client_line' => 'Другая '.$suffix.', '.$leadEmail, 'duplicate_of_ref' => $match['matches'][0]['ref'], 'duplicate_reason' => 'Другое юрлицо холдинга']);
+    check($other['created'] && (int)$other['lead']['company']['id'] !== $leadCompanyId, '«Это другая компания» with a reason creates a new company');
+
+    // List, card.
+    $list = run('cms_lead_list', ['cms_company_id' => $leadCompanyId, 'status' => ['open']]);
+    check($list['total'] === 2, 'The list filters by company and open status');
+    $card = run('cms_lead_get', ['id' => $leadId]);
+    check($card['description'] === 'Сайт под ключ' && $card['stage_history'] && $card['stage_history'][0]['kind'] === 'create', 'The card has the stage history from creation');
+    check($card['can']['work'] === true && isset($card['overview']['record']) && array_key_exists('events', $card), 'The card has rights, the overview and events');
+
+    // Update, move, close.
+    $updated = run('cms_lead_update', ['id' => $leadId, 'name' => 'Сайт '.$suffix, 'amount' => 180000]);
+    check($updated['lead']['name'] === 'Сайт '.$suffix && $updated['lead']['amount'] === 180000.0, 'Name and amount change');
+    rejects(fn() => run('cms_lead_update', ['id' => $leadId]), 'An empty update is refused');
+    $pipelineOfLead = $card['pipeline'] ? $card['pipeline']['id'] : null;
+    $stagesOfLead = [];
+    foreach ($pipelines as $item) { if ($item['id'] === $pipelineOfLead) { $stagesOfLead = $item['stages']; } }
+    check($stagesOfLead, 'The deal pipeline has stages');
+    // A stage other than the current one (a new deal starts at the first stage).
+    $targetStage = null;
+    foreach ($stagesOfLead as $item) { if (!$card['stage'] || $item['id'] !== $card['stage']['id']) { $targetStage = $item; break; } }
+    check($targetStage !== null, 'The pipeline has another stage');
+    $moved = run('cms_lead_move', ['id' => $leadId, 'stage_id' => $targetStage['id']]);
+    check($moved['lead']['stage']['id'] === $targetStage['id'] && $moved['last_history']['kind'] === 'stage', 'Moving to a stage is written to the history');
+    foreach ($pipelines as $item) {
+        if ($item['id'] !== $pipelineOfLead) {
+            $toOther = run('cms_lead_move', ['id' => $leadId, 'pipeline_id' => $item['id']]);
+            check($toOther['lead']['pipeline']['id'] === $item['id'] && $toOther['last_history']['kind'] === 'pipeline', 'Moving to another pipeline is written to the history');
+            break;
+        }
+    }
+    $message = rejects(fn() => run('cms_lead_close', ['id' => $leadId, 'result' => 'success', 'result_comment' => 'Договорились']), 'Success without deal_amount is refused');
+    check(mb_strpos($message, 'deal_amount') !== false, 'The refusal names deal_amount');
+    $won = run('cms_lead_close', ['id' => $leadId, 'result' => 'success', 'deal_amount' => 170000, 'result_comment' => 'Договорились']);
+    check($won['lead']['status'] === 'success' && $won['lead']['deal_amount'] === 170000.0 && $won['lead']['amount'] === 180000.0, 'Success keeps both amounts apart');
+    rejects(fn() => run('cms_lead_move', ['id' => $leadId, 'stage_id' => $stagesOfLead[0]['id']]), 'A closed deal is not moved through cms_lead_move without reopening');
+    $reopened = run('cms_lead_close', ['id' => $leadId, 'result' => 'reopen']);
+    check($reopened['lead']['status'] === 'in_work', 'A closed deal is reopened');
+    $reasons = run('cms_lead_reject_reason_list', [])['items'];
+    $lost = run('cms_lead_close', ['id' => (int)$second['lead']['id'], 'result' => 'rejected'] + ($reasons ? ['reject_reason_id' => $reasons[0]['id']] : ['reject_reason' => 'Дорого']));
+    check($lost['lead']['status'] === 'rejected', 'A deal is rejected with a reason');
+    $history = run('cms_lead_get', ['id' => $leadId])['stage_history'];
+    check(in_array('success', array_column($history, 'kind'), true) && in_array('reopen', array_column($history, 'kind'), true), 'Success and reopening are in the history');
+
+    // «Неразобранное»: requests from a source, then spam, merge and accept.
+    $incoming = function (string $ref) use ($siteId, $suffix) {
+        return (new skeeks\cms\services\CmsLeadService())->createFromSource(['cms_site_id' => $siteId, 'name' => 'Заявка '.$ref.' '.$suffix,
+            'source_type' => skeeks\cms\models\CmsLead::SOURCE_FORM, 'source_ref' => 'p2v-'.$ref.'-'.$suffix]);
+    };
+    $spam = $incoming('spam');
+    check($spam->status === 'new', 'A form request lands in «Неразобранное»');
+    check(in_array((int)$spam->id, array_column(run('cms_lead_list', ['status' => 'unsorted', 'limit' => 100])['items'], 'id'), true), 'status=unsorted lists it');
+    rejects(fn() => run('cms_lead_move', ['id' => (int)$spam->id, 'stage_id' => $stagesOfLead[0]['id']]), 'An unsorted deal is sorted first, not moved');
+    $spammed = run('cms_lead_triage', ['id' => (int)$spam->id, 'action' => 'spam']);
+    check($spammed['lead']['triage_result'] === 'spam', 'Spam closes the request');
+    $merge = $incoming('merge');
+    $merged = run('cms_lead_triage', ['id' => (int)$merge->id, 'action' => 'merge', 'target_lead_id' => $leadId]);
+    check($merged['lead']['triage_result'] === 'merged' && $merged['target_lead_id'] === $leadId, 'A request is added to an open deal');
+    $accept = $incoming('accept');
+    $accepted = run('cms_lead_triage', ['id' => (int)$accept->id, 'action' => 'accept', 'cms_company_id' => $leadCompanyId, 'confirm' => true, 'stage_id' => $stagesOfLead[0]['id'] ?? null]);
+    check($accepted['lead']['status'] === 'in_work' && (int)$accepted['lead']['company']['id'] === $leadCompanyId, 'A request is accepted with an existing company');
+    check(in_array((int)$spam->id, array_column(run('cms_lead_list', ['status' => 'triaged', 'limit' => 100])['items'], 'id'), true)
+        && !in_array((int)$spam->id, array_column(run('cms_lead_list', ['status' => 'rejected', 'limit' => 100])['items'], 'id'), true), 'Sorted requests are not lost sales');
+
+    // A plain employee: the admin's deal is hidden, the client is shown only as «уже есть, ответственный …».
+    $plain = null;
+    foreach (CmsUser::find()->isWorker()->andWhere([CmsUser::tableName().'.is_active' => 1])->all() as $candidate) {
+        if (!Yii::$app->authManager->checkAccess((int)$candidate->id, skeeks\cms\rbac\CmsManager::PERMISSION_ROLE_ADMIN_ACCESS)
+            && Yii::$app->authManager->checkAccess((int)$candidate->id, skeeks\cms\rbac\CmsManager::PERMISSION_ADMIN_ACCESS)) { $plain = $candidate; break; }
+    }
+    if ($plain) {
+        // The company of the deals belongs to the administrator (its main responsible).
+        skeeks\cms\crm\CrmAccess::instance()->grantLink(skeeks\cms\models\CmsCrmAccessRequest::RECORD_COMPANY, $leadCompanyId, (int)$admin->id, skeeks\cms\crm\CrmAccess::LEVEL_FULL);
+        Yii::$app->user->setIdentity($plain);
+        rejects(fn() => run('cms_lead_get', ['id' => $leadId]), 'Another employee does not get a foreign deal');
+        rejects(fn() => run('cms_lead_close', ['id' => $leadId, 'result' => 'rejected', 'reject_reason' => 'x']), 'Another employee does not close a foreign deal');
+        check(!in_array($leadId, array_column(run('cms_lead_list', ['limit' => 100])['items'], 'id'), true), 'A foreign deal is not in the list');
+        $hidden = run('cms_lead_create', ['client_line' => 'Неважно, '.$leadEmail]);
+        check($hidden['reason'] === 'client_exists', 'A foreign client is found by the email');
+        $foreign = null;
+        foreach ($hidden['matches'] as $m) { if ($m['type'] === 'company' && !$m['visible']) { $foreign = $m; } }
+        check($foreign && $foreign['id'] === null && $foreign['ref'] && $foreign['responsible'], 'A foreign company comes without id, with a reference and the responsible');
+        $foreignJson = json_encode($foreign, JSON_UNESCAPED_UNICODE);
+        check(strpos($foreignJson, $leadEmail) === false && strpos($foreignJson, (string)$leadCompanyId) === false, 'The foreign match carries neither its contacts nor its id');
+        $work = run('cms_lead_create', ['company_ref' => $foreign['ref'], 'name' => 'Работа с чужим '.$suffix, 'confirm' => true]);
+        if (!empty($work['request_sent'])) {
+            check($work['created'] === false && $work['request_id'], '«По согласованию»: only a request is sent');
+        } else {
+            check($work['created'] && $work['lead']['executor']['id'] === (int)$plain->id, '«Работать с этим клиентом» creates the deal for the employee');
+            check($work['lead']['company']['visible'] || $work['lead']['company']['id'] === null, 'A company the employee does not see comes without id');
+            check((int)run('cms_lead_get', ['id' => (int)$work['lead']['id']])['id'] === (int)$work['lead']['id'], 'The employee opens his own deal of a foreign client');
+        }
+        Yii::$app->user->setIdentity($admin);
+    } else {
+        echo "SKIP: no plain worker with admin access for the visibility checks\n";
+    }
+
     echo 'OK '.$checks." checks\n";
 } catch (Throwable $e) {
     echo 'FAIL after '.$checks.' checks: '.get_class($e).': '.$e->getMessage().' ('.$e->getFile().':'.$e->getLine().")\n";

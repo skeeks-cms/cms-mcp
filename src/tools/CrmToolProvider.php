@@ -5,6 +5,7 @@ namespace skeeks\cms\mcp\tools;
 use skeeks\cms\mcp\services\CmsCompanyService;
 use skeeks\cms\mcp\services\CmsContractorService;
 use skeeks\cms\mcp\services\CmsDealService;
+use skeeks\cms\mcp\services\CmsLeadService;
 use skeeks\cms\mcp\services\CmsProjectService;
 use skeeks\cms\mcp\services\CmsSiteContactService;
 use skeeks\cms\mcp\services\CmsTaskService;
@@ -20,6 +21,7 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
 {
     public $companyServiceConfig = CmsCompanyService::class;
     public $dealServiceConfig = CmsDealService::class;
+    public $leadServiceConfig = CmsLeadService::class;
     public $contractorServiceConfig = CmsContractorService::class;
     public $userServiceConfig = CmsUserService::class;
     public $projectServiceConfig = CmsProjectService::class;
@@ -53,8 +55,9 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
         $tools = array_merge($tools, $this->crud('cms_site_domain', 'домена сайта', 'cms.site', $site, 'domain', null, $this->siteContactSchemas('domain')));
 
         $tools = array_merge($tools, $this->crud('cms_company', 'компании', 'cms.company', $company, 'company', 'companyStats', ['list' => $this->companyListSchema(), 'update' => $this->companyUpdateSchema(), 'stats' => $this->companyStatsSchema()]));
-        $tools[] = $this->tool('cms_company_duplicate_check', 'Проверка повторов компании и контакта по всей базе: телефон, email, ИНН (сильные совпадения), название и домен сайта или почты (подсказка). Вызывать перед созданием. Совпадение с клиентом другого сотрудника приходит с visible=false: только название компании и ответственный, без id и контактов — скажите пользователю «клиент уже есть, ответственный …».', 'cms.company.read', [$company, 'duplicateCheck'], $this->object(['name' => ['type' => 'string'], 'phone' => ['type' => 'string'], 'email' => ['type' => 'string'], 'inn' => ['type' => 'string'], 'domain' => ['type' => 'string']]));
-        $tools[] = $this->tool('cms_lead_duplicate_check', 'Проверка перед новой сделкой (cms_lead, продажа; в интерфейсе «Сделки»): кто клиент (компании, контакты и открытые сделки с теми же телефоном, email, ИНН, названием или доменом — по всей базе, чужие замаскированы) и есть ли у него открытые сделки (open_leads — доступные сотруднику, hidden_open_leads — сколько у других). Та же потребность — продолжать открытую сделку, новая — новая сделка; решает пользователь. Пример: {"phones":["+7 900 000-00-00"],"emails":["a@romashka.ru"],"name":"Ромашка"}.', 'cms.company.read', [$company, 'leadDuplicateCheck'], $this->object(['name' => ['type' => 'string'], 'phone' => ['type' => 'string'], 'phones' => ['type' => 'array', 'items' => ['type' => 'string']], 'email' => ['type' => 'string'], 'emails' => ['type' => 'array', 'items' => ['type' => 'string']], 'inn' => ['type' => 'string'], 'domain' => ['type' => 'string']]));
+        $tools[] = $this->tool('cms_company_duplicate_check', 'Проверка повторов компании и контакта по всей базе: телефон, email, ИНН (сильные совпадения), название и домен сайта или почты (подсказка). Вызывать перед созданием. Можно передать line — строку целиком. Совпадение с клиентом другого сотрудника приходит с visible=false: только название компании и ответственный, без id и контактов — скажите пользователю «клиент уже есть, ответственный …».', 'cms.company.read', [$company, 'duplicateCheck'], $this->object(['line' => ['type' => 'string', 'description' => 'Строка целиком, как вставили из таблицы или сайта: «Ромашка, +7 900 000-00-00, info@romashka.ru» — разбирается на название, телефоны, email, ИНН и сайт.'], 'name' => ['type' => 'string'], 'phone' => ['type' => 'string'], 'email' => ['type' => 'string'], 'inn' => ['type' => 'string'], 'domain' => ['type' => 'string']]));
+        $tools[] = $this->tool('cms_lead_duplicate_check', 'Проверка перед новой сделкой (cms_lead, продажа; в интерфейсе «Сделки»): кто клиент (компании, контакты и открытые сделки с теми же телефоном, email, ИНН, названием или доменом — по всей базе, чужие замаскированы) и есть ли у него открытые сделки (open_leads — доступные сотруднику, hidden_open_leads — сколько у других). Та же потребность — продолжать открытую сделку, новая — новая сделка; решает пользователь. Пример: {"phones":["+7 900 000-00-00"],"emails":["a@romashka.ru"],"name":"Ромашка"}.', 'cms.company.read', [$company, 'leadDuplicateCheck'], $this->object(['line' => ['type' => 'string', 'description' => 'Строка целиком, как вставили из таблицы или сайта: «Ромашка, +7 900 000-00-00, info@romashka.ru» — разбирается на название, телефоны, email, ИНН и сайт.'], 'name' => ['type' => 'string'], 'phone' => ['type' => 'string'], 'phones' => ['type' => 'array', 'items' => ['type' => 'string']], 'email' => ['type' => 'string'], 'emails' => ['type' => 'array', 'items' => ['type' => 'string']], 'inn' => ['type' => 'string'], 'domain' => ['type' => 'string']]));
+        $tools = array_merge($tools, $this->leadTools());
         $tools[] = $this->tool('cms_company_create_full', 'Атомарное создание cms_company с телефонами, email, адресами, ссылками, категориями и менеджерами. Без manager_ids ответственный — по кампании (cms_comm_campaign_id) или настройкам CRM «Исходящие продажи». Сначала получите cms_company_status_list, cms_company_category_list и cms_worker_list; при неоднозначном выборе или дублях уточните у пользователя. Если у другой компании тот же телефон, email или ИНН, компания создаётся только с allow_duplicate=true и duplicate_reason (причина от пользователя), пара отмечается как возможный дубль; телефон и email отдельно (cms_company_phone_create, cms_company_email_create) — тоже только с duplicate_reason.', 'cms.company.write', [$company, 'companyCreateFull'], $this->companyFullSchema());
         $tools[] = $this->tool('cms_company_category_replace', 'Компактная безопасная замена одной категории компаний на другую с сохранением всех остальных категорий. Принимает до 100 компаний и возвращает только ID компаний и старые/новые ID категорий.', 'cms.company.write', [$company, 'companyCategoryReplace'], $this->companyCategoryReplaceSchema());
         foreach (['phone', 'email', 'address', 'link'] as $kind) { $tools = array_merge($tools, $this->crud('cms_company_'.$kind, $kind.' компании', 'cms.company', $company, $kind)); }
@@ -99,6 +102,109 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
             $tools = array_merge($tools, $this->crud('shop_check', 'чека', 'cms.finance', \Yii::createObject($this->checkServiceConfig), 'check', 'checkStats'));
         }
         return $tools;
+    }
+
+    /**
+     * Deals (П2в): CmsLead — «Сделки», sales in pipelines; cms_deal is a service («Услуги»).
+     * The same rights as the screen (forManager, CrmAccess), scopes of the CRM clients.
+     */
+    protected function leadTools(): array
+    {
+        $lead = \Yii::createObject($this->leadServiceConfig);
+        $about = 'Сделка — продажа (cms_lead, в интерфейсе «Сделки»); услуга — другое (cms_deal, «Услуги»). ';
+        $amounts = 'amount — «Сумма», ожидаемая сумма открытой сделки; deal_amount — «Сумма сделки», итог успешной; это разные показатели, складывать их нельзя. ';
+        $client = [
+            'cms_company_id' => ['type' => 'integer', 'description' => 'Своя компания (видимая вам, из cms_company_list или совпадения visible=true).'],
+            'cms_user_id' => ['type' => 'integer', 'description' => 'Свой контакт (человек).'],
+            'company_ref' => ['type' => 'string', 'description' => '«Работать с этим клиентом»: ref совпадения visible=false из cms_lead_duplicate_check. Сделка будет на вас с доступом «Свои сделки», основной ответственный получит уведомление; при by_approval=true уйдёт запрос, сделка — после одобрения.'],
+            'client_ref' => ['type' => 'string', 'description' => 'То же для контакта (человека).'],
+            'client_line' => ['type' => 'string', 'description' => 'Новый клиент строкой целиком: «Ромашка, Иван, +7 900 000-00-00, info@romashka.ru, romashka.ru» — название, контакт, телефоны, email, сайт.'],
+            'company_name' => ['type' => 'string', 'description' => 'Новая компания.'],
+            'company_phones' => ['type' => 'array', 'items' => ['type' => 'string']],
+            'company_emails' => ['type' => 'array', 'items' => ['type' => 'string']],
+            'company_site' => ['type' => 'string'],
+            'inn' => ['type' => 'string', 'description' => 'ИНН — только для проверки повторов.'],
+            'client_first_name' => ['type' => 'string', 'description' => 'Новый контакт (человек).'],
+            'client_last_name' => ['type' => 'string'],
+            'client_phone' => ['type' => 'string', 'description' => 'Телефон контакта; без контакта и компании остаётся у сделки («Из обращения»).'],
+            'client_email' => ['type' => 'string'],
+            'duplicate_of_ref' => ['type' => 'string', 'description' => '«Это другая компания»: ref похожей записи из совпадения; вместе с duplicate_reason.'],
+            'duplicate_reason' => ['type' => 'string', 'description' => 'Почему это другая компания (в строгом режиме «Повторы клиентов» обязательно).'],
+            'comment' => ['type' => 'string', 'description' => 'Комментарий основному ответственному при «Работать с этим клиентом».'],
+            'confirm' => ['type' => 'boolean', 'description' => 'true — пользователь подтвердил новую сделку, хотя у клиента есть открытые.'],
+        ];
+
+        return [
+            $this->tool('cms_lead_list', $about.'Список сделок, доступных вам (как в разделе «Сделки»). '.$amounts.'Пример: {"status":["open"],"mine":true}.', 'cms.company.read', [$lead, 'leadList'], $this->object([
+                'q' => ['type' => 'string', 'description' => 'Название или номер сделки.'],
+                'status' => ['type' => ['string', 'array'], 'items' => ['type' => 'string'], 'description' => 'unsorted — «Неразобранное»; in_work — в работе; open — оба; success — успешные; rejected — отказ; triaged — закрытые разбором (объединены, поддержка, спам).'],
+                'pipeline_id' => ['type' => 'integer', 'description' => 'Воронка из cms_lead_stage_list.'],
+                'stage_id' => ['type' => 'integer'],
+                'executor_id' => ['type' => 'integer', 'description' => 'Ответственный (cms_worker_list).'],
+                'mine' => ['type' => 'boolean', 'description' => 'Только где вы ответственный.'],
+                'cms_company_id' => ['type' => 'integer'],
+                'cms_user_id' => ['type' => 'integer'],
+                'source_type' => ['type' => 'string', 'description' => 'Источник: manual, form, email, phone, api, mailing и др.'],
+                'date_field' => ['type' => 'string', 'enum' => ['created_at', 'processed_at', 'updated_at'], 'description' => 'К какой дате относится date_from/date_to; processed_at — дата закрытия.'],
+                'date_from' => ['type' => ['string', 'integer']],
+                'date_to' => ['type' => ['string', 'integer']],
+                'sort_by' => ['type' => 'string', 'enum' => ['id', 'created_at', 'updated_at', 'processed_at', 'amount', 'deal_amount']],
+                'sort_direction' => ['type' => 'string', 'enum' => ['asc', 'desc']],
+                'limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 100],
+                'offset' => ['type' => 'integer', 'minimum' => 0],
+            ])),
+            $this->tool('cms_lead_get', $about.'Карточка сделки: клиент (чужая компания — только название и ответственный), контакты «Из обращения», суммы, воронка и этап, история этапов, задачи, что вам можно (can), обзор (последний контакт, КП, сотрудничество) и последние события. '.$amounts, 'cms.company.read', [$lead, 'leadGet'], $this->object([
+                'id' => ['type' => 'integer'],
+                'events_limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'description' => 'Сколько последних событий ленты вернуть (10). Полная лента — cms_crm_history_get.'],
+            ], ['id'])),
+            $this->tool('cms_lead_stage_list', 'Воронки сделок (cms_lead) и их этапы: id для cms_lead_list, cms_lead_create и cms_lead_move.', 'cms.company.read', [$lead, 'stageList'], $this->object()),
+            $this->tool('cms_lead_reject_reason_list', 'Причины отказа по сделкам (cms_lead) для cms_lead_close с result=rejected.', 'cms.company.read', [$lead, 'rejectReasonList'], $this->object()),
+            $this->tool('cms_lead_create', $about.'Новая сделка с клиентом, как окно «Новая сделка». Клиент: свой по id; чужой — company_ref/client_ref («Работать с этим клиентом»); новый — client_line или поля. '
+                .'Перед новым клиентом сервер сам проверяет повторы по всей базе: при совпадении ответ requires_confirmation с вариантами (чужие данные не раскрываются: «клиент уже есть, ответственный …»); при открытых сделках клиента — повторите с confirm=true, если потребность новая. '
+                .'Повтор события не создаёт вторую сделку: передайте source_type + source_ref (заявка, письмо, звонок) или idempotency_key — второй вызов вернёт первую сделку (repeated=true). Название необязательно. '.$amounts, 'cms.company.write', [$lead, 'leadCreate'], $this->object($client + [
+                'name' => ['type' => 'string', 'description' => 'Необязательно: иначе «Компания — источник» или «Сделка №…».'],
+                'description' => ['type' => 'string'],
+                'amount' => ['type' => 'number', 'description' => '«Сумма» — ожидаемая.'],
+                'executor_id' => ['type' => 'integer', 'description' => 'Ответственный; по умолчанию — ответственный клиента или вы.'],
+                'pipeline_id' => ['type' => 'integer'],
+                'stage_id' => ['type' => 'integer'],
+                'source_type' => ['type' => 'string', 'description' => 'По умолчанию api.'],
+                'source_ref' => ['type' => 'string', 'description' => 'Ключ события у источника (id заявки, звонка, письма), не длиннее 190.'],
+                'source_name' => ['type' => 'string'],
+                'source_url' => ['type' => 'string'],
+                'idempotency_key' => ['type' => 'string', 'description' => 'Ключ повтора вызова, если у события нет своего source_ref; один и тот же ключ возвращает ту же сделку.'],
+            ])),
+            $this->tool('cms_lead_update', $about.'Изменить название, описание, «Сумму» (amount) открытой сделки или сменить ответственного (executor_id, как «Сменить ответственного»: может ответственный, его руководитель, ответственный клиента, администратор). Этап — cms_lead_move, итог — cms_lead_close.', 'cms.company.write', [$lead, 'leadUpdate'], $this->object([
+                'id' => ['type' => 'integer'],
+                'name' => ['type' => 'string'],
+                'description' => ['type' => 'string'],
+                'amount' => ['type' => ['number', 'null'], 'description' => '«Сумма» — ожидаемая.'],
+                'executor_id' => ['type' => 'integer'],
+                'comment' => ['type' => 'string', 'description' => 'Комментарий к смене ответственного.'],
+            ], ['id'])),
+            $this->tool('cms_lead_move', $about.'Перенести открытую сделку на этап (stage_id) или в другую воронку (pipeline_id, этап необязателен) — как на канбане; переход записывается в историю. Неразобранную сначала разберите (cms_lead_triage), закрытую — cms_lead_close result=reopen.', 'cms.company.write', [$lead, 'leadMove'], $this->object([
+                'id' => ['type' => 'integer'],
+                'stage_id' => ['type' => 'integer'],
+                'pipeline_id' => ['type' => 'integer'],
+            ], ['id'])),
+            $this->tool('cms_lead_close', $about.'Завершить сделку в работе: success — с обязательной deal_amount («Сумма сделки», о чём договорились) и result_comment; rejected — с reject_reason_id (cms_lead_reject_reason_list) или reject_reason текстом; reopen — вернуть закрытую в работу. Успех сам ничего не создаёт: заказ и услугу оформляет человек. '.$amounts, 'cms.company.write', [$lead, 'leadClose'], $this->object([
+                'id' => ['type' => 'integer'],
+                'result' => ['type' => 'string', 'enum' => ['success', 'rejected', 'reopen']],
+                'deal_amount' => ['type' => 'number'],
+                'result_comment' => ['type' => 'string', 'description' => 'Результат обработки (обязателен при успехе).'],
+                'partner_reward_value' => ['type' => 'number', 'description' => 'Вознаграждение партнёру — обязательно при успехе сделки партнёра.'],
+                'reject_reason_id' => ['type' => 'integer'],
+                'reject_reason' => ['type' => 'string'],
+            ], ['id', 'result'])),
+            $this->tool('cms_lead_triage', $about.'Разобрать сделку из «Неразобранного»: accept — взять в работу (клиент как в cms_lead_create, stage_id); merge — это продолжение открытой сделки target_lead_id (контакты и задачи переходят туда); support — обращение по услуге: задача по cms_deal_id или без услуги; spam — закрыть как спам. Перед accept найдите клиента: cms_lead_duplicate_check.', 'cms.company.write', [$lead, 'leadTriage'], $this->object($client + [
+                'id' => ['type' => 'integer'],
+                'action' => ['type' => 'string', 'enum' => ['accept', 'merge', 'support', 'spam']],
+                'stage_id' => ['type' => 'integer'],
+                'executor_id' => ['type' => 'integer'],
+                'target_lead_id' => ['type' => 'integer'],
+                'cms_deal_id' => ['type' => 'integer', 'description' => 'Услуга клиента (cms_deal) для support.'],
+            ], ['id', 'action'])),
+        ];
     }
 
     protected function paymentListSchema(): array

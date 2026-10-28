@@ -227,7 +227,14 @@ class CmsCompanyService extends AbstractCmsService
                 'matched_by' => array_values(array_unique(array_column($candidate['reasons'], 'by'))),
                 'responsible' => array_column($candidate['responsible'], 'name'),
                 'has_open_leads' => $candidate['hasOpenLeads'],
+                // П2в: an opaque reference of a company or a person: «Работать с этим клиентом» (cms_lead_create company_ref/client_ref
+                // for a hidden one) or «Это другая компания» (duplicate_of_ref). The id of a hidden record never leaves the server.
+                'ref' => in_array($candidate['type'], ['company', 'client'], true) ? $candidate['ref'] : null,
+                'by_approval' => (bool)($candidate['byApproval'] ?? false),
             ];
+        }
+        if (trim((string)($arguments['line'] ?? '')) !== '') {
+            $values['line'] = \skeeks\cms\crm\CrmContactParser::parse((string)$arguments['line']);
         }
 
         return [
@@ -242,13 +249,15 @@ class CmsCompanyService extends AbstractCmsService
     private function rawCandidates(array $arguments, ?array $types): array
     {
         $values = $this->checkedValues($arguments);
+        // П2в: a pasted line «Ромашка, +7 …, info@…» is split by the core parser and searched by all its parts.
+        $line = trim((string)($arguments['line'] ?? '')) !== '' ? \skeeks\cms\crm\CrmContactParser::parse((string)$arguments['line']) : null;
         $input = [
             'siteId' => (int)\Yii::$app->skeeks->site->id,
-            'phones' => array_values(array_filter(array_merge((array)($arguments['phones'] ?? []), [$values['phone'] ?? '']))),
-            'emails' => array_values(array_filter(array_merge((array)($arguments['emails'] ?? []), [$values['email'] ?? '']))),
-            'inns' => array_values(array_filter([$values['inn'] ?? ''])),
-            'domains' => array_values(array_filter([$values['domain'] ?? ''])),
-            'name' => (string)($values['name'] ?? ''),
+            'phones' => array_values(array_unique(array_filter(array_merge((array)($arguments['phones'] ?? []), [$values['phone'] ?? ''], $line['phones'] ?? [])))),
+            'emails' => array_values(array_unique(array_filter(array_merge((array)($arguments['emails'] ?? []), [$values['email'] ?? ''], $line['emails'] ?? [])))),
+            'inns' => array_values(array_unique(array_filter(array_merge([$values['inn'] ?? ''], $line['inns'] ?? [])))),
+            'domains' => array_values(array_unique(array_filter(array_merge([$values['domain'] ?? ''], $line['sites'] ?? [])))),
+            'name' => (string)($values['name'] ?? ($line['name'] ?? '')),
         ];
         if ($types) {
             $input['types'] = $types;
