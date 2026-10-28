@@ -99,6 +99,9 @@ class CmsCompanyService extends AbstractCmsService
 
     public function duplicateCheck(array $arguments): array
     {
+        if (class_exists(\skeeks\cms\crm\CrmMatcher::class)) {
+            return $this->coreDuplicateCheck($arguments, [\skeeks\cms\crm\CrmMatcher::TYPE_COMPANY, \skeeks\cms\crm\CrmMatcher::TYPE_CLIENT]);
+        }
         $values = array_filter([
             'name' => trim((string)($arguments['name'] ?? '')),
             'phone' => trim((string)($arguments['phone'] ?? '')),
@@ -115,6 +118,97 @@ class CmsCompanyService extends AbstractCmsService
         }
         foreach ($matches as &$match) { $match['matched_by'] = array_values(array_unique($match['matched_by'])); }
         return ['has_duplicates' => (bool)$matches, 'matches' => array_values($matches), 'checked' => $values];
+    }
+
+    /**
+     * Duplicates of a new deal (CmsLead, «Сделки»): who the client is and
+     * whether open deals of that client exist (the same need — add to it,
+     * a new need — a new deal; the user decides).
+     */
+    public function leadDuplicateCheck(array $arguments): array
+    {
+        if (!class_exists(\skeeks\cms\crm\CrmMatcher::class)) {
+            throw new \InvalidArgumentException('Проверка повторов сделок требует skeeks/cms 6.4.9.75 или новее.');
+        }
+        $result = $this->coreDuplicateCheck($arguments, [\skeeks\cms\crm\CrmMatcher::TYPE_COMPANY, \skeeks\cms\crm\CrmMatcher::TYPE_CLIENT, \skeeks\cms\crm\CrmMatcher::TYPE_LEAD]);
+        $result['open_leads'] = [];
+        $result['hidden_open_leads'] = 0;
+        $viewer = \Yii::$app->user->identity;
+        $matcher = \skeeks\cms\crm\CrmMatcher::instance();
+        $siteId = (int)\Yii::$app->skeeks->site->id;
+        $ids = $matcher->repeatsOf($this->rawCandidates($arguments, null), $siteId);
+        if ($ids) {
+            $visible = \skeeks\cms\models\CmsLead::find()->forManager($viewer)->andWhere([\skeeks\cms\models\CmsLead::tableName().'.id' => $ids])
+                ->with(['executor'])->all();
+            foreach ($visible as $lead) {
+                $result['open_leads'][] = ['id' => (int)$lead->id, 'name' => (string)$lead->name, 'status' => (string)$lead->status,
+                    'status_name' => (string)$lead->staffStatusName, 'executor' => $lead->executor ? (string)$lead->executor->shortDisplayName : null];
+            }
+            $result['hidden_open_leads'] = count($ids) - count($visible);
+        }
+
+        return $result;
+    }
+
+    /**
+     * The core duplicate check across the whole base (records hidden from the
+     * employee included): each match with its evidence; a hidden one only as
+     * "уже есть" — the company name and the responsible, no id or contacts.
+     */
+    private function coreDuplicateCheck(array $arguments, array $types): array
+    {
+        $values = $this->checkedValues($arguments);
+        $matches = [];
+        $raw = $this->rawCandidates($arguments, $types);
+        foreach (\skeeks\cms\crm\CrmMatcher::instance()->present($raw, \Yii::$app->user->identity, (int)\Yii::$app->skeeks->site->id) as $candidate) {
+            $matches[] = [
+                'type' => $candidate['type'],
+                'id' => $candidate['id'],
+                'visible' => $candidate['visible'],
+                'name' => $candidate['title'],
+                'strong' => $candidate['strong'],
+                'matched_by' => array_values(array_unique(array_column($candidate['reasons'], 'by'))),
+                'responsible' => array_column($candidate['responsible'], 'name'),
+                'has_open_leads' => $candidate['hasOpenLeads'],
+            ];
+        }
+
+        return [
+            'has_duplicates' => (bool)$matches,
+            'matches' => $matches,
+            'checked' => $values,
+            'note' => 'strong=true — совпал email, телефон или ИНН; название и домен — только подсказка. '
+                .'visible=false — клиент закреплён за другим сотрудником: покажите пользователю «клиент уже есть, ответственный …», без попытки получить его данные.',
+        ];
+    }
+
+    private function rawCandidates(array $arguments, ?array $types): array
+    {
+        $values = $this->checkedValues($arguments);
+        $input = [
+            'siteId' => (int)\Yii::$app->skeeks->site->id,
+            'phones' => array_values(array_filter(array_merge((array)($arguments['phones'] ?? []), [$values['phone'] ?? '']))),
+            'emails' => array_values(array_filter(array_merge((array)($arguments['emails'] ?? []), [$values['email'] ?? '']))),
+            'inns' => array_values(array_filter([$values['inn'] ?? ''])),
+            'domains' => array_values(array_filter([$values['domain'] ?? ''])),
+            'name' => (string)($values['name'] ?? ''),
+        ];
+        if ($types) {
+            $input['types'] = $types;
+        }
+
+        return \skeeks\cms\crm\CrmMatcher::instance()->rawFind($input);
+    }
+
+    private function checkedValues(array $arguments): array
+    {
+        return array_filter([
+            'name' => trim((string)($arguments['name'] ?? '')),
+            'phone' => trim((string)($arguments['phone'] ?? '')),
+            'email' => trim((string)($arguments['email'] ?? '')),
+            'inn' => trim((string)($arguments['inn'] ?? '')),
+            'domain' => trim((string)($arguments['domain'] ?? '')),
+        ]);
     }
 
     public function companyCategoryReplace(array $arguments): array
@@ -200,13 +294,31 @@ class CmsCompanyService extends AbstractCmsService
         if ($duplicate['has_duplicates'] && empty($arguments['allow_duplicate'])) {
             return ['created' => false, 'requires_confirmation' => true, 'duplicates' => $duplicate['matches'], 'message' => 'Ask the user whether a duplicate company should be created.'];
         }
+        // П2а: a strong match (phone, email, INN of another company) is created only with the user's reason;
+        // the pair is marked as a possible duplicate (the company contact models check it again).
+        $strong = array_filter($duplicate['matches'], static fn($match) => !empty($match['strong']) && ($match['type'] ?? 'company') === 'company');
+        $reason = trim((string)($arguments['duplicate_reason'] ?? ''));
+        // «Повторы клиентов» of the site decide (strict — a reason is required, free — only the mark).
+        $refuses = method_exists(\skeeks\cms\crm\CrmDuplicateGuard::class, 'refuses')
+            ? \skeeks\cms\crm\CrmDuplicateGuard::refuses($reason)
+            : $reason === '';
+        if ($strong && $refuses) {
+            return ['created' => false, 'requires_confirmation' => true, 'duplicates' => $duplicate['matches'],
+                'message' => 'A company with the same phone, email or INN exists ("клиент уже есть, ответственный …"). Ask the user: open the existing one, or create anyway with duplicate_reason — why this is another company.'];
+        }
         $transaction = \Yii::$app->db->beginTransaction();
         try {
             $arguments['_duplicate_checked'] = true;
             $company = $this->companyCreate($arguments);
             $id = (int)$company['id'];
             foreach (['phones' => CmsCompanyPhone::class, 'emails' => CmsCompanyEmail::class, 'addresses' => CmsCompanyAddress::class, 'links' => CmsCompanyLink::class] as $key => $class) {
-                foreach ((array)($arguments[$key] ?? []) as $row) { $this->saveCompanyChild($class, $id, (array)$row); }
+                foreach ((array)($arguments[$key] ?? []) as $row) {
+                    $row = (array)$row;
+                    if ($reason !== '' && in_array($class, [CmsCompanyPhone::class, CmsCompanyEmail::class], true)) {
+                        $row['duplicate_reason'] = $reason;
+                    }
+                    $this->saveCompanyChild($class, $id, $row);
+                }
             }
             foreach ((array)($arguments['category_ids'] ?? []) as $categoryId) {
                 $this->save(new CmsCompany2category(['cms_company_id' => $id, 'cms_company_category_id' => (int)$categoryId]), 'Category link failed');
@@ -215,7 +327,13 @@ class CmsCompanyService extends AbstractCmsService
                 $this->save(new CmsCompany2manager(['cms_company_id' => $id, 'cms_user_id' => (int)$managerId]), 'Manager link failed');
             }
             $transaction->commit();
-            return ['created' => true, 'company' => $this->companyGet(['id' => $id])];
+            $result = ['created' => true, 'company' => $this->companyGet(['id' => $id])];
+            if ($strong) {
+                // Saved with a reason or in the free mode: the match stays visible to the caller (marked as a possible duplicate).
+                $result['possible_duplicate'] = true;
+                $result['duplicates'] = array_values($strong);
+            }
+            return $result;
         } catch (\Throwable $e) { $transaction->rollBack(); throw $e; }
     }
 
@@ -241,12 +359,12 @@ class CmsCompanyService extends AbstractCmsService
     public function categoryUpdate(array $arguments): array { return $this->referenceUpdate(CmsCompanyCategory::class, $arguments); }
     public function phoneList(array $a): array { return $this->childList(CmsCompanyPhone::class, $a); }
     public function phoneGet(array $a): array { return $this->recordData($this->find(CmsCompanyPhone::class, $a)); }
-    public function phoneCreate(array $a): array { return $this->childCreate(CmsCompanyPhone::class, $a); }
-    public function phoneUpdate(array $a): array { return $this->childUpdate(CmsCompanyPhone::class, $a); }
+    public function phoneCreate(array $a): array { return $this->contactSave(CmsCompanyPhone::class, $a, true); }
+    public function phoneUpdate(array $a): array { return $this->contactUpdate(CmsCompanyPhone::class, $a); }
     public function emailList(array $a): array { return $this->childList(CmsCompanyEmail::class, $a); }
     public function emailGet(array $a): array { return $this->recordData($this->find(CmsCompanyEmail::class, $a)); }
-    public function emailCreate(array $a): array { return $this->childCreate(CmsCompanyEmail::class, $a); }
-    public function emailUpdate(array $a): array { return $this->childUpdate(CmsCompanyEmail::class, $a); }
+    public function emailCreate(array $a): array { return $this->contactSave(CmsCompanyEmail::class, $a, true); }
+    public function emailUpdate(array $a): array { return $this->contactUpdate(CmsCompanyEmail::class, $a); }
     public function addressList(array $a): array { return $this->childList(CmsCompanyAddress::class, $a); }
     public function addressGet(array $a): array { return $this->recordData($this->find(CmsCompanyAddress::class, $a)); }
     public function addressCreate(array $a): array { return $this->childCreate(CmsCompanyAddress::class, $a); }
@@ -288,6 +406,47 @@ class CmsCompanyService extends AbstractCmsService
     protected function childList(string $class, array $a): array { $q = $class::find(); $this->applyFilters($q, $class, $a, ['cms_company_id']); return $this->page($q->orderBy(['sort' => SORT_ASC, 'id' => SORT_ASC]), $a); }
     protected function childCreate(string $class, array $a): array { $m = new $class(); $m->loadDefaultValues(); $this->applyWritable($m, $a, $m->safeAttributes()); return $this->recordData($this->save($m, 'Company contact validation failed')); }
     protected function childUpdate(string $class, array $a): array { $m = $this->find($class, $a); $this->applyWritable($m, $a, $m->safeAttributes()); return $this->recordData($this->save($m, 'Company contact validation failed')); }
+
+    /**
+     * A phone or an email stays with its company: moving it to another one
+     * through the API is refused (П2в). The duplicate check of the model then
+     * runs only on a new row with its own duplicate_reason, as in the screen.
+     */
+    protected function contactUpdate(string $class, array $a): array
+    {
+        $m = $this->find($class, $a);
+        $source = array_merge($a, (array)($a['attributes'] ?? []));
+        if (array_key_exists('cms_company_id', $source) && (int)$source['cms_company_id'] !== (int)$m->cms_company_id) {
+            throw new \InvalidArgumentException('Перенести контакт в другую компанию через API нельзя. '
+                .'Добавьте его в нужную компанию через cms_company_phone_create или cms_company_email_create с duplicate_reason '
+                .'(почему это другая компания) или перенесите в интерфейсе CRM.');
+        }
+        return $this->contactSave($class, $a, false);
+    }
+
+    /**
+     * Saves a phone or an email; the model decides by «Повторы клиентов»
+     * (crm\CrmDuplicateGuard). When another company has the same value and the
+     * save went through (a reason, or the free mode), the answer warns about it.
+     */
+    protected function contactSave(string $class, array $a, bool $insert): array
+    {
+        $m = $insert ? new $class() : $this->find($class, $a);
+        if ($insert) { $m->loadDefaultValues(); }
+        $this->applyWritable($m, $a, $m->safeAttributes());
+        $others = [];
+        $guard = \skeeks\cms\crm\CrmDuplicateGuard::class;
+        if (class_exists($guard) && $guard::ready() && ($insert || $m->isAttributeChanged('value', false))) {
+            $others = $guard::companiesWith($class === CmsCompanyPhone::class ? 'phone' : 'email', (string)$m->value,
+                $m->cms_company_id ? (int)$m->cms_company_id : null, $insert ? null : (int)$m->id);
+        }
+        $data = $this->recordData($this->save($m, 'Company contact validation failed'));
+        if ($others) {
+            $data['duplicate_warning'] = $guard::message(($class === CmsCompanyPhone::class ? 'Телефон ' : 'Email ').$m->value, $others);
+            $data['possible_duplicate'] = true;
+        }
+        return $data;
+    }
 
     protected function referenceCreate(string $class, array $arguments): array
     {

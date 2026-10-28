@@ -236,6 +236,8 @@ class CrmReadService extends AbstractCmsService
             if ($m->status === CmsLead::STATUS_REJECTED) {
                 $data['reject_reason'] = $context->text(PersonalData::plain((string)($m->rejectReasonItem ? $m->rejectReasonItem->name : $m->reject_reason)), 300);
             }
+            // amount — «Сумма», the expected amount of the deal; deal_amount — «Сумма сделки», the result of a successful one.
+            $data['amount'] = $m->hasAttribute('amount') && $m->getAttribute('amount') !== null ? (float)$m->getAttribute('amount') : null;
             $data['deal_amount'] = $m->deal_amount !== null ? (float)$m->deal_amount : null;
             $data['contacts'] = $this->contacts('cms_lead_email', 'cms_lead_phone', 'cms_lead_id', (int)$m->id, $context);
             if ($m->cms_company_id) {

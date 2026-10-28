@@ -46,6 +46,7 @@ class CrmReadToolProvider extends Component implements McpToolProviderInterface
                 .'(услуги и активные услуги — cms_deal, оплаченные счета и поступления с суммами и датами, state: active|former|none, ended_at — когда закончилось), открытые задачи, '
                 .'а также разделы пакетов: proposals (отправленные КП и Презентации, открытия, принятия), mailing (отписки и стоп-лист контактов). '
                 .'Деловая часть по умолчанию: контакты — только количество; адреса и телефоны — при include_contacts=true. '
+                .'У сделки (lead) две суммы: amount — «Сумма», ожидаемая сумма открытой сделки; deal_amount — «Сумма сделки», итог успешной; в отчётах не складывать их между собой. '
                 .'Пример: {"record_type":"company","record_id":15}.',
                 'cms.company.read', [$service, 'overviewGet'], $this->object([
                     'record_type' => ['type' => 'string', 'enum' => ['lead', 'company', 'client']],
