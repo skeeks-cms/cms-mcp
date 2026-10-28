@@ -111,6 +111,14 @@ try {
     check($marked > 0, 'Free: the new company is marked as a possible duplicate');
     $guard::$mode = null;
 
+    // --- Calls: the table has no created_by, the list must not fail on it (crm-leak-audit).
+    $calls = run('cms_telephony_call_list', ['limit' => 3]);
+    check(isset($calls['items']) && is_array($calls['items']), 'cms_telephony_call_list answers');
+    if ($calls['items']) {
+        check(array_key_exists('created_by', $calls['items'][0]), 'A call keeps the created_by key (null without the column)');
+        run('cms_telephony_call_get', ['id' => (int)$calls['items'][0]['id']]);
+    }
+
     // --- П2а+: the levels of the CRM in the API, as in its screens (crm\CrmAccess).
     $employee = null;
     foreach (CmsUser::find()->andWhere(['is_worker' => 1, 'is_active' => 1])->andWhere(['<>', 'id', (int)$admin->id])->orderBy(['id' => SORT_ASC])->each() as $worker) {
