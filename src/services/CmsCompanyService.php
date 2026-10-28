@@ -22,7 +22,9 @@ class CmsCompanyService extends AbstractCmsService
 
     public function companyList(array $arguments): array
     {
-        $query = CmsCompany::find()->forManager(\Yii::$app->user->identity);
+        // П2д: the companies of the employee and the general pool (one rule with the CRM lists).
+        $query = CmsCompany::find();
+        $this->applyCompanyVisibility($query);
         $this->applyCompanyFilters($query, $arguments);
 
         $sorts = [
@@ -42,6 +44,28 @@ class CmsCompanyService extends AbstractCmsService
     public function companyGet(array $arguments): array
     {
         return $this->companyData($this->findAllowed(CmsCompany::class, $arguments), true);
+    }
+
+    /** The general pool is seen by every employee, read only (crm\CrmAccess::applyClientVisibility()). */
+    protected function managerQuery(string $class): \yii\db\ActiveQuery
+    {
+        if ($class !== CmsCompany::class) {
+            return parent::managerQuery($class);
+        }
+        $query = CmsCompany::find();
+        $this->applyCompanyVisibility($query);
+
+        return $query;
+    }
+
+    private function applyCompanyVisibility(\yii\db\ActiveQuery $query): void
+    {
+        $access = '\skeeks\cms\crm\CrmAccess';
+        if (class_exists($access) && method_exists($access, 'applyClientVisibility')) {
+            $access::applyClientVisibility($query, \Yii::$app->user->identity);
+        } else {
+            $query->forManager(\Yii::$app->user->identity);
+        }
     }
 
     /**

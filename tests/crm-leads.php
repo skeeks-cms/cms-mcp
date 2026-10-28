@@ -152,6 +152,13 @@ try {
     check(true, '"edit": a phone changes');
     rejects(fn() => run('cms_company_update', ['id' => $levels->id, 'manager_ids' => [(int)$employee->id]]),
         '"edit": the responsible employees are changed by the main responsible only');
+    // П2д: a company of the general pool (no employees) is seen by every employee, read only.
+    $poolCompany = new CmsCompany(['name' => 'П2д пул '.$suffix]);
+    check($poolCompany->save(false), 'A company of the pool');
+    skeeks\cms\models\CmsCompany2manager::deleteAll(['cms_company_id' => $poolCompany->id]);
+    $seenPool = run('cms_company_get', ['id' => (int)$poolCompany->id]);
+    check((int)($seenPool['id'] ?? 0) === (int)$poolCompany->id, 'The employee gets a company of the pool');
+    rejects(fn() => run('cms_company_update', ['id' => (int)$poolCompany->id, 'name' => 'Взлом']), 'A company of the pool is not changed before it is taken');
     Yii::$app->user->setIdentity($admin);
     run('cms_company_update', ['id' => $levels->id, 'manager_ids' => [(int)$admin->id, (int)$employee->id]]);
     check(true, 'The administrator changes the responsible employees');
