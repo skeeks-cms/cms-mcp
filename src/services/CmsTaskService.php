@@ -2,6 +2,7 @@
 
 namespace skeeks\cms\mcp\services;
 
+use skeeks\cms\models\CmsDeal;
 use skeeks\cms\models\CmsLead;
 use skeeks\cms\models\CmsTask;
 use skeeks\cms\models\CmsUser;
@@ -10,13 +11,13 @@ use yii\db\Expression;
 
 class CmsTaskService extends AbstractCmsService
 {
-    protected $writable = ['name', 'description', 'executor_id', 'cms_company_id', 'cms_user_id', 'cms_project_id', 'cms_lead_id', 'parent_cms_task_id', 'plan_start_at', 'plan_duration', 'status', 'fileIds'];
+    protected $writable = ['name', 'description', 'executor_id', 'cms_company_id', 'cms_user_id', 'cms_project_id', 'cms_deal_id', 'cms_lead_id', 'parent_cms_task_id', 'plan_start_at', 'plan_duration', 'status', 'fileIds'];
 
     public function taskList(array $arguments): array
     {
         $startedAt = ApiLogService::startedAt();
         $query = CmsTask::find()->forManager(\Yii::$app->user->identity)->with(['createdBy', 'updatedBy', 'executor', 'cmsProject', 'cmsCompany']);
-        $this->applyFilters($query, CmsTask::class, $arguments, ['status', 'executor_id', 'cms_project_id', 'cms_company_id', 'cms_user_id', 'cms_lead_id', 'parent_cms_task_id', 'created_by', 'updated_by']);
+        $this->applyFilters($query, CmsTask::class, $arguments, ['status', 'executor_id', 'cms_project_id', 'cms_deal_id', 'cms_company_id', 'cms_user_id', 'cms_lead_id', 'parent_cms_task_id', 'created_by', 'updated_by']);
         $this->applySearch($query, CmsTask::class, $arguments, ['name', 'description']);
         $this->applyDateRange($query, CmsTask::class, $arguments, 'plan_start_at');
         foreach ((array)($arguments['named_filters'] ?? []) as $name) { $this->applyNamedFilter($query, $name); }
@@ -53,12 +54,13 @@ class CmsTaskService extends AbstractCmsService
         if (isset($arguments['duration_minutes']) && !isset($arguments['plan_duration'])) { $arguments['plan_duration'] = max(0, (int)$arguments['duration_minutes']) * 60; }
         if (!empty($arguments['parent_cms_task_id'])) {
             $parent = $this->findAllowed(CmsTask::class, ['id' => $arguments['parent_cms_task_id']]);
-            foreach (['executor_id', 'cms_project_id', 'cms_company_id', 'cms_user_id', 'cms_lead_id', 'plan_duration'] as $attribute) {
+            foreach (['executor_id', 'cms_project_id', 'cms_deal_id', 'cms_company_id', 'cms_user_id', 'cms_lead_id', 'plan_duration'] as $attribute) {
                 if (!array_key_exists($attribute, $arguments)) { $arguments[$attribute] = $parent->{$attribute}; }
             }
         }
         $this->applyWritable($task, $arguments, $this->writable);
         $this->assertLeadAllowed($task);
+        $this->assertDealAllowed($task);
         return $this->taskData($this->save($task, 'Task validation failed'), true);
     }
 
@@ -69,9 +71,15 @@ class CmsTaskService extends AbstractCmsService
         if (isset($arguments['duration_minutes']) && !isset($arguments['plan_duration'])) { $arguments['plan_duration'] = max(0, (int)$arguments['duration_minutes']) * 60; }
         $this->applyWritable($task, $arguments, $this->writable);
         $this->assertLeadAllowed($task);
+        $this->assertDealAllowed($task);
         return $this->taskData($this->save($task, 'Task validation failed'), true);
     }
 
+    protected function assertDealAllowed(CmsTask $task): void
+    {
+        if (!$task->cms_deal_id || !$task->isAttributeChanged('cms_deal_id')) { return; }
+        $this->findAllowed(CmsDeal::class, ['id' => (int)$task->cms_deal_id]);
+    }
     protected function assertLeadAllowed(CmsTask $task): void
     {
         if (!$task->cms_lead_id || !$task->isAttributeChanged('cms_lead_id')) { return; }
@@ -152,7 +160,7 @@ class CmsTaskService extends AbstractCmsService
         $group = (string)($arguments['group_by'] ?? 'status'); $metric = (string)($arguments['metric'] ?? 'count');
         if (!isset($groups[$group]) || !isset($metrics[$metric])) { throw new Exception('Unsupported task statistics slice.'); }
         $query = CmsTask::find()->forManager(\Yii::$app->user->identity);
-        $this->applyFilters($query, CmsTask::class, $arguments, ['status', 'executor_id', 'cms_project_id', 'cms_company_id', 'cms_user_id', 'created_by', 'updated_by']);
+        $this->applyFilters($query, CmsTask::class, $arguments, ['status', 'executor_id', 'cms_project_id', 'cms_deal_id', 'cms_company_id', 'cms_user_id', 'created_by', 'updated_by']);
         $this->applyDateRange($query, CmsTask::class, $arguments, 'created_at');
         foreach ((array)($arguments['named_filters'] ?? []) as $name) { $this->applyNamedFilter($query, $name); }
         $field = CmsTask::tableName().'.'.$groups[$group];
