@@ -231,6 +231,9 @@ class CmsCompanyService extends AbstractCmsService
                 // for a hidden one) or «Это другая компания» (duplicate_of_ref). The id of a hidden record never leaves the server.
                 'ref' => in_array($candidate['type'], ['company', 'client'], true) ? $candidate['ref'] : null,
                 'by_approval' => (bool)($candidate['byApproval'] ?? false),
+                // The general pool without the pool right: «Компания в общей базе», cms_lead_create with its ref asks the head.
+                'in_base' => (bool)($candidate['inBase'] ?? false),
+                'protection' => $candidate['protection'] ?? null,
             ];
         }
         if (trim((string)($arguments['line'] ?? '')) !== '') {
@@ -242,7 +245,8 @@ class CmsCompanyService extends AbstractCmsService
             'matches' => $matches,
             'checked' => $values,
             'note' => 'strong=true — совпал email, телефон или ИНН; название и домен — только подсказка. '
-                .'visible=false — клиент закреплён за другим сотрудником: покажите пользователю «клиент уже есть, ответственный …», без попытки получить его данные.',
+                .'visible=false — клиент закреплён за другим сотрудником: покажите пользователю «клиент уже есть, ответственный …», без попытки получить его данные. '
+                .'in_base=true — клиент в общей базе, у пользователя нет права брать такие: cms_lead_create с ref отправит запрос руководителю.',
         ];
     }
 

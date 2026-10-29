@@ -164,9 +164,20 @@ try {
     $poolCompany = new CmsCompany(['name' => 'П2д пул '.$suffix]);
     check($poolCompany->save(false), 'A company of the pool');
     skeeks\cms\models\CmsCompany2manager::deleteAll(['cms_company_id' => $poolCompany->id]);
+    // The pool right (owner's decision 29.10.2026): without it the API does not show the pool.
+    $poolAccess = skeeks\cms\crm\CrmAccess::instance();
+    $hadPool = !method_exists($poolAccess, 'canUsePool') || $poolAccess->canUsePool($employee);
+    if (!$hadPool) {
+        rejects(fn() => run('cms_company_get', ['id' => (int)$poolCompany->id]), 'Without the pool right the API does not give a company of the pool');
+        $poolAccess->setPoolRight((int)$employee->id, true);
+    }
     $seenPool = run('cms_company_get', ['id' => (int)$poolCompany->id]);
-    check((int)($seenPool['id'] ?? 0) === (int)$poolCompany->id, 'The employee gets a company of the pool');
+    check((int)($seenPool['id'] ?? 0) === (int)$poolCompany->id, 'The employee with the pool right gets a company of the pool');
     rejects(fn() => run('cms_company_update', ['id' => (int)$poolCompany->id, 'name' => 'Взлом']), 'A company of the pool is not changed before it is taken');
+    if (!$hadPool) {
+        // Taken back before the rollback: the RBAC manager of this process remembers the assignment.
+        $poolAccess->setPoolRight((int)$employee->id, false);
+    }
     Yii::$app->user->setIdentity($admin);
     run('cms_company_update', ['id' => $levels->id, 'manager_ids' => [(int)$admin->id, (int)$employee->id]]);
     check(true, 'The administrator changes the responsible employees');
