@@ -11,7 +11,7 @@ use yii\db\Expression;
 
 class ShopDocumentService extends AbstractCmsService
 {
-    public function documentList(array $a): array { $q = ShopDocument::find(); if (method_exists($q, 'forManager')) { $q->forManager(\Yii::$app->user->identity); } $this->applyFilters($q, ShopDocument::class, $a, ['cms_company_id', 'cms_user_id', 'type', 'status', 'number', 'buyer_contractor_id', 'seller_contractor_id']); $this->applySearch($q, ShopDocument::class, $a, ['number', 'description', 'comment_before', 'comment_after', 'buyer_contractor_name', 'buyer_contractor_inn']); $this->applyDateRange($q, ShopDocument::class, $a, 'issued_at'); return $this->page($q->orderBy(['id' => SORT_DESC]), $a, [$this, 'documentData']); }
+    public function documentList(array $a): array { $q = ShopDocument::find(); if (method_exists($q, 'forManager')) { $q->forManager(\Yii::$app->user->identity); } $this->applyFilters($q, ShopDocument::class, $a, ['cms_company_id', 'cms_user_id', 'cms_lead_id', 'type', 'status', 'number', 'buyer_contractor_id', 'seller_contractor_id']); $this->applySearch($q, ShopDocument::class, $a, ['number', 'description', 'comment_before', 'comment_after', 'buyer_contractor_name', 'buyer_contractor_inn']); $this->applyDateRange($q, ShopDocument::class, $a, 'issued_at'); return $this->page($q->orderBy(['id' => SORT_DESC]), $a, [$this, 'documentData']); }
     public function documentGet(array $a): array { return $this->documentData($this->findAllowed(ShopDocument::class, $a), true); }
     public function documentCreate(array $a): array { $m = new ShopDocument(); $m->loadDefaultValues(); return $this->mutate($m, $a); }
     public function documentUpdate(array $a): array { return $this->mutate($this->findAllowed(ShopDocument::class, $a), $a); }
