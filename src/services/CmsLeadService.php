@@ -188,9 +188,7 @@ class CmsLeadService extends AbstractCmsService
                 continue;
             }
             $ref = $this->access()->parseCandidateRef((string)$form->{$part.'_ref'});
-            // The general pool without the pool right («Попросить у руководителя») goes the same way: a request first.
-            if ($ref && ($this->access()->approvalRequired($recordCode, (int)$ref[1])
-                || (method_exists($this->access(), 'poolRequestNeeded') && $this->access()->poolRequestNeeded($actorId, $recordCode, (int)$ref[1])))) {
+            if ($ref && $this->access()->approvalRequired($recordCode, (int)$ref[1])) {
                 $result = $this->domain(fn() => $this->triage()->workWithClient((string)$form->{$part.'_ref'}, $actorId, $this->text($a['comment'] ?? $a['description'] ?? null)));
 
                 return [
