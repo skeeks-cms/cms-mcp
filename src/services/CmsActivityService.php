@@ -45,7 +45,7 @@ class CmsActivityService extends AbstractCmsService
             $conditions[] = ['and', [CmsLog::tableName().'.model_code' => (new $payment())->skeeksModelCode], [CmsLog::tableName().'.model_id' => $payment::find()->select('id')->andWhere(['cms_company_id' => $company->id])]];
         }
         $q = CmsLog::find()->andWhere($conditions);
-        // П2а+: with «Свои сделки» (or a company of the general pool) only the client's own records and those of his deals, as the card feed.
+        // П2а+: with «Свои сделки» only the client's own records and those of his deals, as the card feed.
         $limit = class_exists(\skeeks\cms\crm\CrmAccess::class) ? \skeeks\cms\crm\CrmAccess::instance()->feedCondition(\Yii::$app->user->identity, $company) : null;
         if ($limit !== null) {
             $q = CmsLog::find()->andWhere($limit);

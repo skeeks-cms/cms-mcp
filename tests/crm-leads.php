@@ -305,6 +305,25 @@ try {
         echo "SKIP: no plain worker with admin access for the visibility checks\n";
     }
 
+    // п. 13а: every client created through the API has the main responsible — the caller when nobody else is given.
+    $creator = $plain ?: $admin;
+    Yii::$app->user->setIdentity($creator);
+    $mainOf = static fn(string $code, int $id) => skeeks\cms\crm\CrmAccess::instance()->mainResponsibleId($code, $id);
+    $personNew = run('cms_user_create', ['first_name' => 'Основной', 'last_name' => 'Человек '.$suffix]);
+    check($mainOf(skeeks\cms\models\CmsCrmAccessRequest::RECORD_CLIENT, (int)$personNew['id']) === (int)$creator->id, 'cms_user_create: the creator is the main responsible of the person');
+    $plainCompany = run('cms_company_create', ['name' => 'Основной компания '.$suffix]);
+    check($mainOf(skeeks\cms\models\CmsCrmAccessRequest::RECORD_COMPANY, (int)$plainCompany['id']) === (int)$creator->id, 'cms_company_create: the creator is the main responsible');
+    $fullCompany = run('cms_company_create_full', ['name' => 'Основной полная '.$suffix]);
+    check($fullCompany['created'] && $mainOf(skeeks\cms\models\CmsCrmAccessRequest::RECORD_COMPANY, (int)$fullCompany['company']['id']) !== null, 'cms_company_create_full: the company has the main responsible');
+    $leadNew = run('cms_lead_create', ['client_line' => 'Основной сделка '.$suffix.', main-'.$suffix.'@example-p2v.ru', 'name' => 'Основной '.$suffix]);
+    check($leadNew['created'] && $leadNew['lead']['company']['id']
+        && $mainOf(skeeks\cms\models\CmsCrmAccessRequest::RECORD_COMPANY, (int)$leadNew['lead']['company']['id']) === (int)$leadNew['lead']['executor']['id'],
+        'cms_lead_create with a new company: the responsible of the deal is the main responsible of the company');
+    $leadPerson = run('cms_lead_create', ['client_first_name' => 'Основной', 'client_last_name' => 'Контакт '.$suffix, 'client_email' => 'main-person-'.$suffix.'@example-p2v.ru', 'name' => 'Основной человек '.$suffix]);
+    check($leadPerson['created'] && $leadPerson['lead']['client']['id']
+        && $mainOf(skeeks\cms\models\CmsCrmAccessRequest::RECORD_CLIENT, (int)$leadPerson['lead']['client']['id']) !== null, 'cms_lead_create with a new person: the person has the main responsible');
+    Yii::$app->user->setIdentity($admin);
+
     echo 'OK '.$checks." checks\n";
 } catch (Throwable $e) {
     echo 'FAIL after '.$checks.' checks: '.get_class($e).': '.$e->getMessage().' ('.$e->getFile().':'.$e->getLine().")\n";
