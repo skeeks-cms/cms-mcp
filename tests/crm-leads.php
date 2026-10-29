@@ -43,6 +43,27 @@ try {
     Yii::$app->user->setIdentity($admin);
     $siteId = (int)Yii::$app->skeeks->site->id;
     $suffix = substr(md5((string)microtime(true)), 0, 8);
+    // Independent scenarios get independent contacts: the matcher compares phones and the domains of emails,
+    // so each scenario has its own domain of this run, and a phone whose last digits nobody on the stand has.
+    $domain = static fn(string $scenario) => $scenario.'-'.$suffix.'.example.test';
+    $usedPhones = [];
+    $freshPhone = static function (string $code) use ($suffix, &$usedPhones): string {
+        for ($i = 0; ; $i++) {
+            $digits = sprintf('%07d', hexdec(substr(md5($code.$suffix.$i), 0, 7)) % 10000000);
+            if (isset($usedPhones[$digits])) {
+                continue;
+            }
+            foreach (['cms_company_phone', 'cms_user_phone', 'cms_lead_phone'] as $table) {
+                if ((new yii\db\Query())->from('{{%'.$table.'}}')
+                    ->where(new yii\db\Expression("REGEXP_REPLACE(value, '[^0-9]', '') LIKE :digits", [':digits' => '%'.$digits]))->exists()) {
+                    continue 2;
+                }
+            }
+            $usedPhones[$digits] = true;
+
+            return '+7 '.$code.' '.substr($digits, 0, 3).'-'.substr($digits, 3, 2).'-'.substr($digits, 5);
+        }
+    };
 
     // --- A company contact stays with its company (Codex: moving a shared email to a third company skipped the duplicate check).
     $companies = [];
@@ -51,8 +72,9 @@ try {
         check($company->save(false), 'Test company '.$letter.' saved');
         $companies[$letter] = (int)$company->id;
     }
-    $email = 'p2v-'.$suffix.'@example-p2v.ru';
-    $phone = '+79'.sprintf('%09d', hexdec(substr($suffix, 0, 7)) % 1000000000);
+    // The intended duplicates of companies A, B and C share these contacts on purpose.
+    $email = 'p2v-'.$suffix.'@'.$domain('contacts');
+    $phone = $freshPhone('903');
     $a = run('cms_company_email_create', ['cms_company_id' => $companies['A'], 'value' => $email]);
     $message = rejects(fn() => run('cms_company_email_create', ['cms_company_id' => $companies['B'], 'value' => $email]),
         'The same email in another company without a reason is refused');
@@ -136,7 +158,7 @@ try {
     (new skeeks\cms\models\CmsCompany2manager(['cms_company_id' => $levels->id, 'cms_user_id' => $employee->id]))->save(false);
     $setLevel = fn(string $level) => skeeks\cms\models\CmsCompany2manager::updateAll(['access_level' => $level],
         ['cms_company_id' => $levels->id, 'cms_user_id' => $employee->id]);
-    $own = run('cms_company_phone_create', ['cms_company_id' => $levels->id, 'value' => '+7 914 '.sprintf('%03d', hexdec(substr($suffix, 0, 3)) % 1000).'-11-22']);
+    $own = run('cms_company_phone_create', ['cms_company_id' => $levels->id, 'value' => $freshPhone('914')]);
     $setLevel('deal');
     Yii::$app->user->setIdentity($employee);
     $message = rejects(fn() => run('cms_company_update', ['id' => $levels->id, 'name' => 'Переименована']), '"deal": changing the company is refused');
@@ -144,14 +166,14 @@ try {
     check(mb_strpos(rejects(fn() => run('cms_company_phone_update', ['id' => (int)$own['id'], 'name' => 'Другой']), '"deal": changing a phone is refused'), 'Свои сделки') !== false, 'The refusal is by the level');
     check(mb_strpos(rejects(fn() => run('cms_company_address_create', ['cms_company_id' => $levels->id, 'value' => 'Москва']), '"deal": adding an address is refused'), 'Свои сделки') !== false, 'The refusal is by the level');
     check(mb_strpos(rejects(fn() => run('cms_company_link_create', ['cms_company_id' => $levels->id, 'url' => 'https://example-'.$suffix.'.ru']), '"deal": adding a link is refused'), 'Свои сделки') !== false, 'The refusal is by the level');
-    $newPhone = '+7 914 '.sprintf('%03d', hexdec(substr($suffix, 3, 3)) % 1000).'-33-44';
+    $newPhone = $freshPhone('914');
     check(mb_strpos(rejects(fn() => run('cms_company_phone_create', ['cms_company_id' => $levels->id, 'value' => $newPhone]), '"deal": a phone without his deal is refused'), 'своей сделки') !== false,
         'The refusal says a new contact comes from the own deal');
     $ownDeal = new skeeks\cms\models\CmsLead(['name' => 'П2а+ своя '.$suffix, 'cms_site_id' => $siteId, 'cms_company_id' => $levels->id, 'executor_id' => $employee->id, 'status' => 'in_work']);
     check($ownDeal->save(false), 'A deal of the employee');
     $added = run('cms_company_phone_create', ['cms_company_id' => $levels->id, 'value' => $newPhone, 'cms_lead_id' => (int)$ownDeal->id]);
     check(!empty($added['id']), '"deal": a new phone is added from his deal');
-    $addedEmail = run('cms_company_email_create', ['cms_company_id' => $levels->id, 'value' => 'deal-'.$email, 'cms_lead_id' => (int)$ownDeal->id]);
+    $addedEmail = run('cms_company_email_create', ['cms_company_id' => $levels->id, 'value' => 'deal-'.$suffix.'@'.$domain('levels'), 'cms_lead_id' => (int)$ownDeal->id]);
     check(!empty($addedEmail['id']), '"deal": a new email is added from his deal');
     $setLevel('edit');
     $renamed = run('cms_company_update', ['id' => $levels->id, 'name' => 'П2а+ правка '.$suffix]);
@@ -174,6 +196,19 @@ try {
     // ================= Deals (cms_lead_*, П2в) =================
     Yii::$app->user->setIdentity($admin);
     $stages = run('cms_lead_stage_list', []);
+    if (!$stages['pipelines'] && skeeks\cms\models\CmsLead::pipelineReady()) {
+        // A site without pipelines (a production copy right after the update): the list is empty, its stages
+        // belong to the main pipeline once there is one. The test makes its own, rolled back with the rest.
+        check($stages['pipelines'] === [], 'A site without pipelines answers an empty list');
+        $ownPipeline = new skeeks\cms\models\CmsLeadPipeline(['cms_site_id' => $siteId, 'name' => 'Проверка: воронка '.$suffix, 'is_default' => 1]);
+        check($ownPipeline->save(false), 'A test main pipeline');
+        $siteStages = (int)skeeks\cms\models\CmsLeadStage::find()->andWhere(['cms_site_id' => $siteId])->count();
+        for ($i = $siteStages; $i < 2; $i++) {
+            check((new skeeks\cms\models\CmsLeadStage(['cms_site_id' => $siteId, 'cms_lead_pipeline_id' => $ownPipeline->id, 'name' => 'Проверка: этап '.($i + 1).' '.$suffix, 'sort' => 900 + $i]))->save(false), 'A test stage');
+        }
+        skeeks\cms\models\CmsLeadPipeline::clearCache();
+        $stages = run('cms_lead_stage_list', []);
+    }
     $pipelines = $stages['pipelines'];
     check($pipelines && isset($pipelines[0]['stages']), 'Pipelines with stages are listed');
     $mainPipeline = null;
@@ -182,8 +217,9 @@ try {
     run('cms_lead_reject_reason_list', []);
 
     // A new client by a pasted line, an expected amount, a repeated event.
-    $leadEmail = 'lead-'.$suffix.'@example-p2v.ru';
-    $line = 'Сделочная '.$suffix.', +7 901 '.substr($phone, -7, 3).'-'.substr($phone, -4, 2).'-'.substr($phone, -2).', '.$leadEmail;
+    // A client of its own: neither the phone nor the domain of companies A/B/C (the later matches by this email are intended).
+    $leadEmail = 'lead-'.$suffix.'@'.$domain('lead');
+    $line = 'Сделочная '.$suffix.', '.$freshPhone('901').', '.$leadEmail;
     $first = run('cms_lead_create', ['client_line' => $line, 'amount' => 150000, 'source_type' => 'api', 'source_ref' => 'p2v-'.$suffix, 'description' => 'Сайт под ключ']);
     check($first['created'] === true && $first['lead']['id'], 'A deal is created with a new client from a line');
     $leadId = (int)$first['lead']['id'];
@@ -315,11 +351,11 @@ try {
     check($mainOf(skeeks\cms\models\CmsCrmAccessRequest::RECORD_COMPANY, (int)$plainCompany['id']) === (int)$creator->id, 'cms_company_create: the creator is the main responsible');
     $fullCompany = run('cms_company_create_full', ['name' => 'Основной полная '.$suffix]);
     check($fullCompany['created'] && $mainOf(skeeks\cms\models\CmsCrmAccessRequest::RECORD_COMPANY, (int)$fullCompany['company']['id']) !== null, 'cms_company_create_full: the company has the main responsible');
-    $leadNew = run('cms_lead_create', ['client_line' => 'Основной сделка '.$suffix.', main-'.$suffix.'@example-p2v.ru', 'name' => 'Основной '.$suffix]);
+    $leadNew = run('cms_lead_create', ['client_line' => 'Основной сделка '.$suffix.', main-'.$suffix.'@'.$domain('main-company'), 'name' => 'Основной '.$suffix]);
     check($leadNew['created'] && $leadNew['lead']['company']['id']
         && $mainOf(skeeks\cms\models\CmsCrmAccessRequest::RECORD_COMPANY, (int)$leadNew['lead']['company']['id']) === (int)$leadNew['lead']['executor']['id'],
         'cms_lead_create with a new company: the responsible of the deal is the main responsible of the company');
-    $leadPerson = run('cms_lead_create', ['client_first_name' => 'Основной', 'client_last_name' => 'Контакт '.$suffix, 'client_email' => 'main-person-'.$suffix.'@example-p2v.ru', 'name' => 'Основной человек '.$suffix]);
+    $leadPerson = run('cms_lead_create', ['client_first_name' => 'Основной', 'client_last_name' => 'Контакт '.$suffix, 'client_email' => 'main-person-'.$suffix.'@'.$domain('main-person'), 'name' => 'Основной человек '.$suffix]);
     check($leadPerson['created'] && $leadPerson['lead']['client']['id']
         && $mainOf(skeeks\cms\models\CmsCrmAccessRequest::RECORD_CLIENT, (int)$leadPerson['lead']['client']['id']) !== null, 'cms_lead_create with a new person: the person has the main responsible');
     Yii::$app->user->setIdentity($admin);
