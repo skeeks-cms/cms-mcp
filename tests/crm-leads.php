@@ -279,7 +279,14 @@ try {
     check(mb_strpos($message, 'deal_amount') !== false, 'The refusal names deal_amount');
     $won = run('cms_lead_close', ['id' => $leadId, 'result' => 'success', 'deal_amount' => 170000, 'result_comment' => 'Договорились']);
     check($won['lead']['status'] === 'success' && $won['lead']['deal_amount'] === 170000.0 && $won['lead']['amount'] === 180000.0, 'Success keeps both amounts apart');
-    rejects(fn() => run('cms_lead_move', ['id' => $leadId, 'stage_id' => $stagesOfLead[0]['id']]), 'A closed deal is not moved through cms_lead_move without reopening');
+    $message = rejects(fn() => run('cms_lead_move', ['id' => $leadId, 'stage_id' => $stagesOfLead[0]['id']]), 'A closed deal is not moved through cms_lead_move without reopening');
+    check(mb_strpos($message, 'result=reopen') !== false, 'The refusal says how to reopen the deal');
+    foreach ($pipelines as $item) {
+        rejects(fn() => run('cms_lead_move', ['id' => $leadId, 'pipeline_id' => $item['id']]), 'A closed deal is not moved to a pipeline without reopening');
+    }
+    rejects(fn() => run('cms_lead_update', ['id' => $leadId, 'attributes' => ['cms_lead_stage_id' => $stagesOfLead[0]['id'], 'cms_lead_pipeline_id' => $pipelineOfLead]]),
+        'cms_lead_update does not change the stage or the pipeline');
+    check(skeeks\cms\models\CmsLead::findOne($leadId)->status === skeeks\cms\models\CmsLead::STATUS_SUCCESS, 'The closed deal stayed closed');
     $reopened = run('cms_lead_close', ['id' => $leadId, 'result' => 'reopen']);
     check($reopened['lead']['status'] === 'in_work', 'A closed deal is reopened');
     $reasons = run('cms_lead_reject_reason_list', [])['items'];

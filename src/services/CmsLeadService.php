@@ -299,6 +299,10 @@ class CmsLeadService extends AbstractCmsService
         if ($lead->status === CmsLead::STATUS_NEW) {
             throw new \InvalidArgumentException('Сделка в «Неразобранном»: сначала разберите её — cms_lead_triage с action=accept (можно сразу со stage_id).');
         }
+        // The kanban drop of a closed deal into a stage reopens it; the API does not reopen silently.
+        if ($lead->isTerminal) {
+            throw new \InvalidArgumentException('Сделка закрыта: сначала верните сделку в работу — cms_lead_close с result=reopen, затем переносите.');
+        }
         $pipelineId = (int)($a['pipeline_id'] ?? 0);
         $stageId = (int)($a['stage_id'] ?? 0) ?: null;
         if (!$pipelineId && !$stageId) {
