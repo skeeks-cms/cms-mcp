@@ -71,8 +71,8 @@ class CmsCompanyService extends AbstractCmsService
     /**
      * The responsible of a new company of the flow (П2д): the campaign's
      * «Ответственный за новые компании» (cms-communication), otherwise the
-     * CRM settings «Исходящие продажи»; the sender is the API user. Null —
-     * none (the common pool).
+     * CRM settings «Исходящие продажи»; the sender is the API user. Never
+     * none: a CRM client always has a main responsible (п. 13а).
      */
     private function newCompanyOwner(array $arguments): ?int
     {
@@ -87,14 +87,11 @@ class CmsCompanyService extends AbstractCmsService
             return $campaigns::newCardOwnerId($campaignId, $userId);
         }
         $settings = \Yii::$app->has('crmSettings') ? \Yii::$app->crmSettings : null;
-        if (!$settings || !property_exists($settings, 'outgoingNewCardOwner')) {
-            return null;
-        }
-        if ($settings->outgoingNewCardOwner === 'sender') {
-            return $userId ?: null;
+        if ($settings && property_exists($settings, 'outgoingNewCardOwner') && $settings->outgoingNewCardOwner === 'worker' && $settings->outgoingNewCardWorkerId) {
+            return (int)$settings->outgoingNewCardWorkerId;
         }
 
-        return $settings->outgoingNewCardOwner === 'worker' && $settings->outgoingNewCardWorkerId ? (int)$settings->outgoingNewCardWorkerId : null;
+        return $userId ?: null;
     }
 
     public function companyCreate(array $arguments): array
@@ -397,8 +394,8 @@ class CmsCompanyService extends AbstractCmsService
                 $this->save(new CmsCompany2category(['cms_company_id' => $id, 'cms_company_category_id' => (int)$categoryId]), 'Category link failed');
             }
             // П2д: a company of the flow without explicit managers gets the responsible of new companies of its
-            // campaign (cms_comm_campaign_id) or of «Исходящие продажи» of the CRM settings; none — the common pool.
-            $managerIds = array_key_exists('manager_ids', $arguments) ? (array)$arguments['manager_ids'] : array_filter([$this->newCompanyOwner($arguments)]);
+            // campaign (cms_comm_campaign_id) or of «Исходящие продажи» of the CRM settings, else the API user (п. 13а).
+            $managerIds = array_filter(array_map('intval', (array)($arguments['manager_ids'] ?? []))) ?: array_filter([$this->newCompanyOwner($arguments)]);
             foreach ($managerIds as $managerId) {
                 $this->save(new CmsCompany2manager(['cms_company_id' => $id, 'cms_user_id' => (int)$managerId]), 'Manager link failed');
             }
@@ -406,9 +403,9 @@ class CmsCompanyService extends AbstractCmsService
             try {
                 $result = ['created' => true, 'company' => $this->companyGet(['id' => $id])];
             } catch (\yii\base\Exception $e) {
-                // Created for the common pool or another employee (П2д): the caller has no access to the card.
+                // Created for another employee (the campaign's or the settings' responsible): the caller has no access to the card.
                 $result = ['created' => true, 'company' => ['id' => $id, 'name' => (string)($arguments['name'] ?? ''), 'visible' => false],
-                    'message' => 'Компания создана, но доступа к её карточке у вас нет: она в общем пуле или у другого ответственного. Взять её в работу можно в CRM.'];
+                    'message' => 'Компания создана, но доступа к её карточке у вас нет: её основной ответственный — другой сотрудник.'];
             }
             if ($strong) {
                 // Saved with a reason or in the free mode: the match stays visible to the caller (marked as a possible duplicate).
