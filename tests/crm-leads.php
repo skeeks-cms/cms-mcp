@@ -230,9 +230,19 @@ try {
     check((new yii\db\Query())->from('{{%cms_company_email}}')->where(['cms_company_id' => $leadCompanyId, 'value' => $leadEmail])->exists(), 'The email of the line went to the company');
     $again = run('cms_lead_create', ['client_line' => $line, 'source_type' => 'api', 'source_ref' => 'p2v-'.$suffix]);
     check($again['created'] === false && !empty($again['repeated']) && (int)$again['lead']['id'] === $leadId, 'The same source_ref returns the first deal');
-    $key = run('cms_lead_create', ['name' => 'Ключ '.$suffix, 'idempotency_key' => 'k-'.$suffix]);
-    $keyAgain = run('cms_lead_create', ['name' => 'Ключ '.$suffix, 'idempotency_key' => 'k-'.$suffix]);
+    $key = run('cms_lead_create', ['name' => 'Ключ '.$suffix, 'idempotency_key' => 'k-'.$suffix, 'cms_company_id' => $leadCompanyId, 'confirm' => true]);
+    $keyAgain = run('cms_lead_create', ['name' => 'Ключ '.$suffix, 'idempotency_key' => 'k-'.$suffix, 'cms_company_id' => $leadCompanyId, 'confirm' => true]);
     check($key['created'] && !empty($keyAgain['repeated']) && $keyAgain['lead']['id'] === $key['lead']['id'], 'The same idempotency_key returns the first deal');
+
+    // П2г: an employee creates a deal only with its client; phones and emails never go to the deal.
+    $leadsBefore = (int)skeeks\cms\models\CmsLead::find()->count();
+    $refused = rejects(fn() => run('cms_lead_create', ['name' => 'Без клиента '.$suffix]), 'A deal without a client is refused');
+    check(mb_strpos($refused, 'Укажите клиента сделки') === 0, 'The refusal names the client arguments');
+    rejects(fn() => run('cms_lead_create', ['name' => 'Без клиента '.$suffix, 'client_phone' => '+7 917 000-'.substr($suffix, -2).'-11']), 'A phone without a client is refused');
+    $refused = rejects(fn() => run('cms_lead_create', ['cms_company_id' => $leadCompanyId, 'client_phone' => '+7 917 000-00-11', 'confirm' => true]), 'A phone of an existing client is not added to the deal');
+    check(mb_strpos($refused, 'client_phone и client_email') === 0, 'The refusal says where phones go');
+    rejects(fn() => run('cms_lead_create', ['cms_company_id' => $leadCompanyId, 'client_line' => '+7 917 000-00-12', 'confirm' => true]), 'Phones of a line without a new client are refused');
+    check((int)skeeks\cms\models\CmsLead::find()->count() === $leadsBefore, 'No deal is created by the refused calls');
 
     // The same client again: a strong match asks for a choice, open deals need confirm.
     $match = run('cms_lead_create', ['client_line' => 'Другое имя '.$suffix.', '.$leadEmail]);
@@ -249,7 +259,7 @@ try {
 
     // List, card.
     $list = run('cms_lead_list', ['cms_company_id' => $leadCompanyId, 'status' => ['open']]);
-    check($list['total'] === 2, 'The list filters by company and open status');
+    check($list['total'] === 3, 'The list filters by company and open status'); // the first deal, «Ключ», «Вторая потребность»
     $card = run('cms_lead_get', ['id' => $leadId]);
     check($card['description'] === 'Сайт под ключ' && $card['stage_history'] && $card['stage_history'][0]['kind'] === 'create', 'The card has the stage history from creation');
     check($card['can']['work'] === true && isset($card['overview']['record']) && array_key_exists('events', $card), 'The card has rights, the overview and events');

@@ -177,6 +177,13 @@ class CmsLeadService extends AbstractCmsService
         }
 
         $form = $this->identityForm($a);
+        // П2г (owner's decision 30.10.2026): an employee creates a deal only with its client; a deal without one
+        // comes from incoming sources only. LeadTriage::createLead() refuses too; here the answer names the arguments.
+        if ($form->isEmpty()) {
+            throw new \InvalidArgumentException('Укажите клиента сделки: cms_company_id / cms_user_id (свой), company_ref / client_ref (клиент другого сотрудника) '
+                .'или нового — company_name (+ company_phones, company_emails), client_first_name (+ client_phone, client_email) или client_line. '
+                .'Сделка без клиента своих телефонов и email не хранит.');
+        }
         $confirmation = $this->confirmIdentity($form, $a, null);
         if ($confirmation) {
             return $confirmation;
@@ -432,7 +439,8 @@ class CmsLeadService extends AbstractCmsService
     /**
      * «Кто это» from the arguments: an id of a visible record, an opaque
      * reference of a hidden one («Работать с этим клиентом»), new fields or a
-     * pasted line; nothing — the contacts stay with the deal («Из обращения»).
+     * pasted line. П2г: phones and emails go only to a new company or person,
+     * never to the deal; given without one they are refused.
      */
     protected function identityForm(array $a): LeadIdentityForm
     {
@@ -467,9 +475,18 @@ class CmsLeadService extends AbstractCmsService
         $form->client_phone = trim((string)($a['client_phone'] ?? ''));
         $form->client_email = trim((string)($a['client_email'] ?? ''));
         if ($line && $form->company_mode !== LeadIdentityForm::MODE_NEW) {
-            // A line without a name: its phone and email are the contacts of the request.
-            $form->client_phone = $form->client_phone ?: ($line['phones'][0] ?? '');
-            $form->client_email = $form->client_email ?: ($line['emails'][0] ?? '');
+            if ($form->client_mode === LeadIdentityForm::MODE_NEW) {
+                // A line with a person and no company name: its phone and email are the person's.
+                $form->client_phone = $form->client_phone ?: ($line['phones'][0] ?? '');
+                $form->client_email = $form->client_email ?: ($line['emails'][0] ?? '');
+            } elseif (!empty($line['phones']) || !empty($line['emails'])) {
+                throw new \InvalidArgumentException('Телефоны и email из client_line записываются в новую компанию (название в строке) или новый контакт (имя в строке); к сделке они не добавляются.');
+            }
+        }
+        if ($form->client_mode !== LeadIdentityForm::MODE_NEW && ($form->client_phone !== '' || $form->client_email !== '')) {
+            throw new \InvalidArgumentException('client_phone и client_email — контакты нового человека: передайте с ними client_first_name. '
+                .'Телефоны новой компании — company_phones, company_emails; существующей компании — cms_company_phone_create, cms_company_email_create. '
+                .'К сделке телефоны и email не добавляются.');
         }
 
         $form->foreign_comment = $this->text($a['comment'] ?? null);

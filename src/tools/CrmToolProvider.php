@@ -126,8 +126,8 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
             'inn' => ['type' => 'string', 'description' => 'ИНН — только для проверки повторов.'],
             'client_first_name' => ['type' => 'string', 'description' => 'Новый контакт (человек).'],
             'client_last_name' => ['type' => 'string'],
-            'client_phone' => ['type' => 'string', 'description' => 'Телефон контакта; без контакта и компании остаётся у сделки («Из обращения»).'],
-            'client_email' => ['type' => 'string'],
+            'client_phone' => ['type' => 'string', 'description' => 'Телефон нового контакта (вместе с client_first_name). К сделке телефоны не добавляются: контакты живут в компании или человеке.'],
+            'client_email' => ['type' => 'string', 'description' => 'Email нового контакта (вместе с client_first_name).'],
             'duplicate_of_ref' => ['type' => 'string', 'description' => '«Это другая компания»: ref похожей записи из совпадения; вместе с duplicate_reason.'],
             'duplicate_reason' => ['type' => 'string', 'description' => 'Почему это другая компания (в строгом режиме «Повторы клиентов» обязательно).'],
             'comment' => ['type' => 'string', 'description' => 'Комментарий основному ответственному при «Работать с этим клиентом».'],
@@ -159,7 +159,7 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
             ], ['id'])),
             $this->tool('cms_lead_stage_list', 'Воронки сделок (cms_lead) и их этапы: id для cms_lead_list, cms_lead_create и cms_lead_move.', 'cms.company.read', [$lead, 'stageList'], $this->object()),
             $this->tool('cms_lead_reject_reason_list', 'Причины отказа по сделкам (cms_lead) для cms_lead_close с result=rejected.', 'cms.company.read', [$lead, 'rejectReasonList'], $this->object()),
-            $this->tool('cms_lead_create', $about.'Новая сделка с клиентом, как окно «Новая сделка». Клиент: свой по id; чужой — company_ref/client_ref («Работать с этим клиентом»); новый — client_line или поля. '
+            $this->tool('cms_lead_create', $about.'Новая сделка с клиентом, как окно «Новая сделка». Клиент обязателен: свой по id; чужой — company_ref/client_ref («Работать с этим клиентом»); новый — client_line или поля; телефоны и email пишутся в компанию или человека, у сделки своих нет. '
                 .'Перед новым клиентом сервер сам проверяет повторы по всей базе: при совпадении ответ requires_confirmation с вариантами (чужие данные не раскрываются: «клиент уже есть, ответственный …»); при открытых сделках клиента — повторите с confirm=true, если потребность новая. '
                 .'Повтор события не создаёт вторую сделку: передайте source_type + source_ref (заявка, письмо, звонок) или idempotency_key — второй вызов вернёт первую сделку (repeated=true). Название необязательно. '.$amounts, 'cms.company.write', [$lead, 'leadCreate'], $this->object($client + [
                 'name' => ['type' => 'string', 'description' => 'Необязательно: иначе «Компания — источник» или «Сделка №…».'],
