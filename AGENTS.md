@@ -238,6 +238,10 @@ Retry with the returned confirmation flag only after explicit approval.
 - `CmsSiteContactService`: site information, phones, emails, addresses, social links and domains.
 - `CmsCompanyService`: companies, duplicate checks, contacts, statuses, categories and statistics.
 - `CmsDealService`: deals, deal types and statistics.
+- `CmsLeadService`: leads («Сделки») through the core `LeadTriage`; `cms_lead_create`
+  requires a client (company or person: own, foreign by ref or new), phones and
+  emails go only to a new card, never to the lead (П2г); triage without a contacts
+  choice moves the request contacts to the client card.
 - `CmsContractorService`: contractor details and relations.
 - `CmsUserService`: users and workers without exposing authentication secrets.
 - `CmsProjectService`: projects and their managers/users.
