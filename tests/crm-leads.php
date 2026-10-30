@@ -320,8 +320,12 @@ try {
     $merged = run('cms_lead_triage', ['id' => (int)$merge->id, 'action' => 'merge', 'target_lead_id' => $leadId]);
     check($merged['lead']['triage_result'] === 'merged' && $merged['target_lead_id'] === $leadId, 'A request is added to an open deal');
     $accept = $incoming('accept');
+    // П2г: the phone of the request goes to the client card by default when the API sorts it.
+    $requestPhone = '+7 923 '.random_int(100, 999).'-'.random_int(10, 99).'-77';
+    (new skeeks\cms\models\CmsLeadPhone(['cms_lead_id' => (int)$accept->id, 'value' => $requestPhone]))->save(false);
     $accepted = run('cms_lead_triage', ['id' => (int)$accept->id, 'action' => 'accept', 'cms_company_id' => $leadCompanyId, 'confirm' => true, 'stage_id' => $stagesOfLead[0]['id'] ?? null]);
     check($accepted['lead']['status'] === 'in_work' && (int)$accepted['lead']['company']['id'] === $leadCompanyId, 'A request is accepted with an existing company');
+    check((new yii\db\Query())->from('{{%cms_company_phone}}')->where(['cms_company_id' => $leadCompanyId, 'value' => $requestPhone])->exists(), 'The phone of the request went to the company card');
     check(in_array((int)$spam->id, array_column(run('cms_lead_list', ['status' => 'triaged', 'limit' => 100])['items'], 'id'), true)
         && !in_array((int)$spam->id, array_column(run('cms_lead_list', ['status' => 'rejected', 'limit' => 100])['items'], 'id'), true), 'Sorted requests are not lost sales');
 
