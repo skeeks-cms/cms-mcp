@@ -50,6 +50,11 @@ try {
     rejects(function () use ($api, $fixed) { $api->taskUpdate(['id' => $fixed['id'], 'plan_start_at' => time() - 7200]); }, 'A start in the past is refused');
     rejects(function () use ($api, $fixed) { $api->taskUpdate(['id' => $fixed['id'], 'start_mode' => 'fixed', 'plan_start_at' => null]); }, 'start_mode=fixed needs a start');
 
+    $late = $api->taskUpdate(['id' => $fixed['id'], 'deadline_at' => (int)$back['plan_start_at'] - 3600]);
+    check($late['behind_deadline'] === true && (int)$late['deadline_at'] > 0, 'A deadline before the planned end: behind_deadline');
+    $ok = $api->taskUpdate(['id' => $fixed['id'], 'deadline_at' => null]);
+    check($ok['behind_deadline'] === false && $ok['deadline_at'] === null, 'Without a deadline nothing is checked');
+
     $none = $api->taskUpdate(['id' => $fixed['id'], 'reminder' => '']);
     check($none['reminder'] === '' && $none['remind_at'] === null, 'A reminder can be removed');
 } finally {

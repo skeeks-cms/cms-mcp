@@ -11,7 +11,7 @@ use yii\db\Expression;
 
 class CmsTaskService extends AbstractCmsService
 {
-    protected $writable = ['name', 'description', 'executor_id', 'cms_company_id', 'cms_user_id', 'cms_project_id', 'cms_deal_id', 'cms_lead_id', 'parent_cms_task_id', 'plan_start_at', 'plan_duration', 'status', 'fileIds', 'reminder', 'remind_at', 'remind_author'];
+    protected $writable = ['name', 'description', 'executor_id', 'cms_company_id', 'cms_user_id', 'cms_project_id', 'cms_deal_id', 'cms_lead_id', 'parent_cms_task_id', 'plan_start_at', 'plan_duration', 'status', 'fileIds', 'reminder', 'remind_at', 'remind_author', 'deadline_at'];
 
     public function taskList(array $arguments): array
     {
@@ -190,6 +190,7 @@ class CmsTaskService extends AbstractCmsService
             'start_mode' => function (CmsTask $model) { return $model->hasAttribute('is_fixed_start') && !$model->is_fixed_start ? 'auto' : 'fixed'; },
             'reminder' => function (CmsTask $model) { return $model->hasAttribute('remind_at') ? $model->reminder : ''; },
             'reminder_text' => function (CmsTask $model) { return $model->hasAttribute('remind_at') ? $model->reminderText : ''; },
+            'behind_deadline' => function (CmsTask $model) { return method_exists($model, 'isBehindDeadline') && $model->isBehindDeadline(); },
             'plan_duration_seconds' => function (CmsTask $model) { return $model->planDurationSeconds; },
             'created_by_user' => function (CmsTask $model) { return $this->userReference($model->createdBy); },
             'updated_by_user' => function (CmsTask $model) { return $this->userReference($model->updatedBy); },
