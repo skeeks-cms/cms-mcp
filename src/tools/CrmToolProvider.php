@@ -278,6 +278,7 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
         $schema['properties']['remind_at'] = ['type' => ['string', 'integer', 'null'], 'description' => 'Время напоминания при reminder=custom (unix-время или дата-время сайта), не в прошлом.'];
         $schema['properties']['deadline_at'] = ['type' => ['string', 'integer', 'null'], 'description' => 'Крайний срок (необязательно, unix-время или дата-время сайта). Если расчётный конец задачи позже, в ответе behind_deadline=true и пометка «не успевает» в интерфейсе; уведомлений нет.'];
         $schema['properties']['remind_author'] = ['type' => 'boolean', 'description' => 'Напомнить и автору задачи.'];
+        $schema['properties']['is_fixed_start'] = ['type' => 'boolean', 'description' => 'Булавка без нового начала: true — закрепить на текущем начале, false — снять закрепление (система сама поставит задачу в свободное время, время может сразу измениться). В истории задачи запись с автором.'];
         $schema['properties']['start_mode'] = ['type' => 'string', 'enum' => ['auto', 'fixed'], 'description' => 'auto — снять закрепление, начало рассчитает система; fixed — закрепить на plan_start_at (по умолчанию, если plan_start_at передан).'];
         return $schema;
     }

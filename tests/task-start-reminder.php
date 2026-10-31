@@ -55,6 +55,13 @@ try {
     $ok = $api->taskUpdate(['id' => $fixed['id'], 'deadline_at' => null]);
     check($ok['behind_deadline'] === false && $ok['deadline_at'] === null, 'Without a deadline nothing is checked');
 
+    // The pin through the API: fix on the current start, unfix without a confirmation, both in the history.
+    $pinned = $api->taskUpdate(['id' => $auto['id'], 'is_fixed_start' => true]);
+    check($pinned['start_mode'] === 'fixed' && (int)$pinned['plan_start_at'] === (int)$auto['plan_start_at'], 'is_fixed_start=true fixes the task on its current start');
+    $unpinned = $api->taskUpdate(['id' => $auto['id'], 'is_fixed_start' => false]);
+    check($unpinned['start_mode'] === 'auto', 'is_fixed_start=false gives the start back to the planner');
+    $logs = \skeeks\cms\models\CmsLog::find()->andWhere(['model_id' => $auto['id']])->andWhere(['like', 'data', 'Закрепление'])->count();
+    check($logs == 2, 'both pin changes are in the history: '.$logs);
     $none = $api->taskUpdate(['id' => $fixed['id'], 'reminder' => '']);
     check($none['reminder'] === '' && $none['remind_at'] === null, 'A reminder can be removed');
 } finally {

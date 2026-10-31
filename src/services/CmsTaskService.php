@@ -65,8 +65,12 @@ class CmsTaskService extends AbstractCmsService
         return $this->taskData($this->save($task, 'Task validation failed'), true);
     }
 
+    /** @var bool|null the pin asked through the API, applied after the other fields (CmsTask::setFixedStart()) */
+    protected $pendingPin;
+
     public function taskUpdate(array $arguments): array
     {
+        $this->pendingPin = null;
         $this->rejectStatusWrite($arguments);
         $task = $this->findAllowed(CmsTask::class, $arguments);
         if (isset($arguments['duration_minutes']) && !isset($arguments['plan_duration'])) { $arguments['plan_duration'] = max(0, (int)$arguments['duration_minutes']) * 60; }
@@ -74,7 +78,12 @@ class CmsTaskService extends AbstractCmsService
         $this->applyStartMode($task, $arguments);
         $this->assertLeadAllowed($task);
         $this->assertDealAllowed($task);
-        return $this->taskData($this->save($task, 'Task validation failed'), true);
+        $task = $this->save($task, 'Task validation failed');
+        if ($this->pendingPin !== null && method_exists($task, 'setFixedStart')) {
+            if ($error = $task->setFixedStart($this->pendingPin)) { throw new Exception($error); }
+            $task->refresh();
+        }
+        return $this->taskData($task, true);
     }
 
     /**
@@ -84,6 +93,12 @@ class CmsTaskService extends AbstractCmsService
     protected function applyStartMode(CmsTask $task, array $arguments): void
     {
         $mode = $arguments['start_mode'] ?? ($arguments['attributes']['start_mode'] ?? null);
+        // is_fixed_start alone (no new start): the pin — fix on the current start or give it to the planner.
+        $pin = $arguments['is_fixed_start'] ?? ($arguments['attributes']['is_fixed_start'] ?? null);
+        if ($mode === null && $pin !== null && !$task->isNewRecord && !array_key_exists('plan_start_at', $arguments)) {
+            $this->pendingPin = (bool)$pin;
+            return;
+        }
         if ($mode === null) { return; }
         if (!in_array($mode, ['auto', 'fixed'], true)) { throw new Exception('start_mode must be auto or fixed.'); }
         if ($mode === 'auto') { $task->plan_start_at = null; return; }
