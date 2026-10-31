@@ -64,6 +64,22 @@ try {
     check($logs == 2, 'both pin changes are in the history: '.$logs);
     $none = $api->taskUpdate(['id' => $fixed['id'], 'reminder' => '']);
     check($none['reminder'] === '' && $none['remind_at'] === null, 'A reminder can be removed');
+
+    // A reminder of its own time follows a move through the API (review F5).
+    $own = $api->taskCreate(['name' => 'API own reminder', 'plan_start_at' => $at + 86400, 'reminder' => 'custom', 'remind_at' => $at + 86400 - 900]);
+    $ownMoved = $api->taskUpdate(['id' => $own['id'], 'plan_start_at' => $at + 86400 + 3600]);
+    check((int)$ownMoved['remind_at'] === $at + 86400 + 3600 - 900, 'A reminder of its own time follows a move through the API');
+
+    // A closed task and the task in work do not move through the API; nothing is saved with the refusal (review F3).
+    foreach ([CmsTask::STATUS_READY, CmsTask::STATUS_IN_WORK] as $status) {
+        $closed = $api->taskCreate(['name' => 'API '.$status, 'plan_start_at' => $at + 2 * 86400]);
+        CmsTask::updateAll(['status' => $status], ['id' => $closed['id']]);
+        rejects(function () use ($api, $closed, $at) { $api->taskUpdate(['id' => $closed['id'], 'name' => 'API renamed', 'plan_start_at' => $at + 3 * 86400]); }, $status.': a new start is refused');
+        rejects(function () use ($api, $closed) { $api->taskUpdate(['id' => $closed['id'], 'start_mode' => 'auto']); }, $status.': start_mode is refused');
+        rejects(function () use ($api, $closed) { $api->taskUpdate(['id' => $closed['id'], 'is_fixed_start' => false]); }, $status.': the pin is refused');
+        $kept = CmsTask::findOne($closed['id']);
+        check((int)$kept->plan_start_at === $at + 2 * 86400 && $kept->name === 'API '.$status && (int)$kept->is_fixed_start === 1, $status.': nothing is saved with the refusals');
+    }
 } finally {
     $tx->rollBack();
 }

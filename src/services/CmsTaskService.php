@@ -78,11 +78,20 @@ class CmsTaskService extends AbstractCmsService
         $this->applyStartMode($task, $arguments);
         $this->assertLeadAllowed($task);
         $this->assertDealAllowed($task);
-        $task = $this->save($task, 'Task validation failed');
-        if ($this->pendingPin !== null && method_exists($task, 'setFixedStart')) {
-            if ($error = $task->setFixedStart($this->pendingPin)) { throw new Exception($error); }
-            $task->refresh();
+        // A closed task and the task in work do not move: refused before anything is saved (the model's rule
+        // refuses a new start or duration, the pin is checked here).
+        if ($this->pendingPin !== null && method_exists($task, 'startChangeError') && ($error = $task->startChangeError())) {
+            throw new Exception($error);
         }
+        $task = CmsTask::getDb()->transaction(function () use ($task) {
+            $task = $this->save($task, 'Task validation failed');
+            if ($this->pendingPin !== null) {
+                if (!method_exists($task, 'setFixedStart')) { throw new Exception('is_fixed_start needs a newer skeeks/cms.'); }
+                if ($error = $task->setFixedStart($this->pendingPin)) { throw new Exception($error); }
+                $task->refresh();
+            }
+            return $task;
+        });
         return $this->taskData($task, true);
     }
 
