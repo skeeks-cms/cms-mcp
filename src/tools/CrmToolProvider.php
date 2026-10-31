@@ -274,6 +274,9 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
         $schema['properties']['cms_lead_id'] = ['type' => 'integer', 'description' => 'ID сделки (продажи, cms_lead; в интерфейсе «Сделки»): задача по работе со сделкой (перезвонить, уточнить). Сделка должна быть доступна текущему пользователю.'];
         $schema['properties']['attributes']['description'] = 'Поля задачи, кроме status. Статус меняется только через cms_task_action.';
         $schema['properties']['plan_start_at'] = ['type' => ['string', 'integer', 'null'], 'description' => 'Начало задачи (unix-время или дата-время сайта). Указанное время закрепляет задачу: система её не сдвигает. Без начала (или null) задача «авто»: её ставят в ближайшее свободное время рабочего графика исполнителя после его очереди.'];
+        $schema['properties']['reminder'] = ['type' => 'string', 'enum' => ['', '0', '300', '900', '1800', '3600', '86400', 'custom'], 'description' => 'Напоминание: пусто — нет; число — за столько секунд до начала (0 — в начале), переезжает вместе с началом; custom — в своё время remind_at. Приходит исполнителю важным уведомлением (CRM, MAX, Telegram, почта — по его настройкам).'];
+        $schema['properties']['remind_at'] = ['type' => ['string', 'integer', 'null'], 'description' => 'Время напоминания при reminder=custom (unix-время или дата-время сайта), не в прошлом.'];
+        $schema['properties']['remind_author'] = ['type' => 'boolean', 'description' => 'Напомнить и автору задачи.'];
         $schema['properties']['start_mode'] = ['type' => 'string', 'enum' => ['auto', 'fixed'], 'description' => 'auto — снять закрепление, начало рассчитает система; fixed — закрепить на plan_start_at (по умолчанию, если plan_start_at передан).'];
         return $schema;
     }
