@@ -59,6 +59,7 @@ class CmsTaskService extends AbstractCmsService
             }
         }
         $this->applyWritable($task, $arguments, $this->writable);
+        $this->applyStartMode($task, $arguments);
         $this->assertLeadAllowed($task);
         $this->assertDealAllowed($task);
         return $this->taskData($this->save($task, 'Task validation failed'), true);
@@ -70,9 +71,24 @@ class CmsTaskService extends AbstractCmsService
         $task = $this->findAllowed(CmsTask::class, $arguments);
         if (isset($arguments['duration_minutes']) && !isset($arguments['plan_duration'])) { $arguments['plan_duration'] = max(0, (int)$arguments['duration_minutes']) * 60; }
         $this->applyWritable($task, $arguments, $this->writable);
+        $this->applyStartMode($task, $arguments);
         $this->assertLeadAllowed($task);
         $this->assertDealAllowed($task);
         return $this->taskData($this->save($task, 'Task validation failed'), true);
+    }
+
+    /**
+     * A start passed by the caller fixes the task (the model decides it); start_mode=auto gives the start
+     * back to the planner, which puts the task into the executor's nearest free time.
+     */
+    protected function applyStartMode(CmsTask $task, array $arguments): void
+    {
+        $mode = $arguments['start_mode'] ?? ($arguments['attributes']['start_mode'] ?? null);
+        if ($mode === null) { return; }
+        if (!in_array($mode, ['auto', 'fixed'], true)) { throw new Exception('start_mode must be auto or fixed.'); }
+        if ($mode === 'auto') { $task->plan_start_at = null; return; }
+        if (!$task->plan_start_at) { throw new Exception('start_mode=fixed needs plan_start_at.'); }
+        if ($task->hasAttribute('is_fixed_start')) { $task->is_fixed_start = 1; }
     }
 
     protected function assertDealAllowed(CmsTask $task): void
@@ -171,6 +187,7 @@ class CmsTaskService extends AbstractCmsService
     {
         $extra = [
             'status_text' => function (CmsTask $model) { return $model->statusAsText; },
+            'start_mode' => function (CmsTask $model) { return $model->hasAttribute('is_fixed_start') && !$model->is_fixed_start ? 'auto' : 'fixed'; },
             'plan_duration_seconds' => function (CmsTask $model) { return $model->planDurationSeconds; },
             'created_by_user' => function (CmsTask $model) { return $this->userReference($model->createdBy); },
             'updated_by_user' => function (CmsTask $model) { return $this->userReference($model->updatedBy); },
