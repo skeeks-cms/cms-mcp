@@ -80,6 +80,19 @@ try {
         $kept = CmsTask::findOne($closed['id']);
         check((int)$kept->plan_start_at === $at + 2 * 86400 && $kept->name === 'API '.$status && (int)$kept->is_fixed_start === 1, $status.': nothing is saved with the refusals');
     }
+
+    // An older skeeks/cms (or its migrations not applied): every new field is refused, none is silently skipped.
+    $old = new class extends CmsTask {
+        public function hasAttribute($name) { return !in_array($name, ['is_fixed_start', 'remind_at', 'remind_author', 'deadline_at'], true) && parent::hasAttribute($name); }
+    };
+    $reject = new ReflectionMethod($api, 'rejectUnsupported');
+    $reject->setAccessible(true);
+    foreach (['start_mode' => 'auto', 'is_fixed_start' => true, 'reminder' => '0', 'remind_at' => $at, 'remind_author' => true, 'deadline_at' => $at] as $field => $value) {
+        rejects(function () use ($reject, $api, $old, $field, $value) { $reject->invoke($api, $old, [$field => $value]); }, 'An older cms refuses '.$field);
+        rejects(function () use ($reject, $api, $old, $field, $value) { $reject->invoke($api, $old, ['attributes' => [$field => $value]]); }, 'An older cms refuses attributes.'.$field);
+    }
+    $reject->invoke($api, $old, ['name' => 'Old fields only', 'plan_start_at' => $at]);
+    check(true, 'An older cms takes the fields it has');
 } finally {
     $tx->rollBack();
 }

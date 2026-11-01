@@ -49,6 +49,7 @@ class CmsTaskService extends AbstractCmsService
     {
         $this->rejectStatusWrite($arguments);
         $task = new CmsTask(); $task->loadDefaultValues();
+        $this->rejectUnsupported($task, $arguments);
         if (!isset($arguments['name']) && isset($arguments['title'])) { $arguments['name'] = $arguments['title']; }
         if (empty($arguments['executor_id'])) { $arguments['executor_id'] = (int)\Yii::$app->user->id; }
         if (isset($arguments['duration_minutes']) && !isset($arguments['plan_duration'])) { $arguments['plan_duration'] = max(0, (int)$arguments['duration_minutes']) * 60; }
@@ -73,6 +74,7 @@ class CmsTaskService extends AbstractCmsService
         $this->pendingPin = null;
         $this->rejectStatusWrite($arguments);
         $task = $this->findAllowed(CmsTask::class, $arguments);
+        $this->rejectUnsupported($task, $arguments);
         if (isset($arguments['duration_minutes']) && !isset($arguments['plan_duration'])) { $arguments['plan_duration'] = max(0, (int)$arguments['duration_minutes']) * 60; }
         $this->applyWritable($task, $arguments, $this->writable);
         $this->applyStartMode($task, $arguments);
@@ -125,6 +127,28 @@ class CmsTaskService extends AbstractCmsService
         if (!$task->cms_lead_id || !$task->isAttributeChanged('cms_lead_id')) { return; }
         if (!CmsLead::find()->forManager(\Yii::$app->user->identity)->andWhere([CmsLead::tableName().'.id' => (int)$task->cms_lead_id])->exists()) {
             throw new Exception('Lead is not available to the current user.');
+        }
+    }
+
+    /**
+     * Fields of a newer skeeks/cms (or of its migrations not applied yet) are refused before anything is saved:
+     * an older model would silently skip them and answer success.
+     */
+    protected function rejectUnsupported(CmsTask $task, array $arguments): void
+    {
+        $source = array_merge($arguments, (array)($arguments['attributes'] ?? []));
+        $supported = [
+            'start_mode'     => $task->hasAttribute('is_fixed_start') && method_exists($task, 'setFixedStart'),
+            'is_fixed_start' => $task->hasAttribute('is_fixed_start') && method_exists($task, 'setFixedStart'),
+            'reminder'       => $task->hasAttribute('remind_at') && $task->canSetProperty('reminder'),
+            'remind_at'      => $task->hasAttribute('remind_at'),
+            'remind_author'  => $task->hasAttribute('remind_author'),
+            'deadline_at'    => $task->hasAttribute('deadline_at'),
+        ];
+        foreach ($supported as $field => $ok) {
+            if (!$ok && array_key_exists($field, $source)) {
+                throw new Exception($field.' needs a newer skeeks/cms (and its migrations) on this site.');
+            }
         }
     }
 
