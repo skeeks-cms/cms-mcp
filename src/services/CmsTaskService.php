@@ -50,6 +50,7 @@ class CmsTaskService extends AbstractCmsService
         $this->rejectStatusWrite($arguments);
         $task = new CmsTask(); $task->loadDefaultValues();
         $this->rejectUnsupported($task, $arguments);
+        $arguments = $this->dayArguments($arguments);
         if (!isset($arguments['name']) && isset($arguments['title'])) { $arguments['name'] = $arguments['title']; }
         if (empty($arguments['executor_id'])) { $arguments['executor_id'] = (int)\Yii::$app->user->id; }
         if (isset($arguments['duration_minutes']) && !isset($arguments['plan_duration'])) { $arguments['plan_duration'] = max(0, (int)$arguments['duration_minutes']) * 60; }
@@ -75,6 +76,7 @@ class CmsTaskService extends AbstractCmsService
         $this->rejectStatusWrite($arguments);
         $task = $this->findAllowed(CmsTask::class, $arguments);
         $this->rejectUnsupported($task, $arguments);
+        $arguments = $this->dayArguments($arguments);
         if (isset($arguments['duration_minutes']) && !isset($arguments['plan_duration'])) { $arguments['plan_duration'] = max(0, (int)$arguments['duration_minutes']) * 60; }
         $this->applyWritable($task, $arguments, $this->writable);
         $this->applyStartMode($task, $arguments);
@@ -98,8 +100,39 @@ class CmsTaskService extends AbstractCmsService
     }
 
     /**
+     * «На день» (owner's decision 02.11.2026): a date without a time in plan_start_at, or start_mode=day, or
+     * plan_day — only the day is fixed, the planner gives the time within it. The date goes to plan_day (Y-m-d,
+     * the site's time zone) and plan_start_at is not written.
+     */
+    protected function dayArguments(array $arguments): array
+    {
+        $source = array_merge($arguments, (array)($arguments['attributes'] ?? []));
+        $mode = $source['start_mode'] ?? null;
+        $start = $source['plan_start_at'] ?? null;
+        $dateOnly = is_string($start) && preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($start));
+        if (!$dateOnly && $mode !== 'day' && !isset($source['plan_day'])) {
+            return $arguments;
+        }
+        if ($dateOnly && $mode !== null && $mode !== 'day') {
+            throw new Exception('A date without a time is a task «на день»: start_mode must be day or omitted.');
+        }
+        $day = $source['plan_day'] ?? null;
+        if ($day === null && $start !== null && $start !== '') {
+            $day = $dateOnly ? trim($start) : \Yii::$app->formatter->asDate($this->timestamp($start), 'php:Y-m-d');
+        }
+        if ($day !== null && !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$day)) {
+            throw new Exception('plan_day must be a date Y-m-d.');
+        }
+        unset($arguments['plan_start_at'], $arguments['attributes']['plan_start_at'], $arguments['attributes']['plan_day'], $arguments['attributes']['start_mode']);
+        $arguments['start_mode'] = 'day';
+        $arguments['plan_day'] = $day;
+
+        return $arguments;
+    }
+
+    /**
      * A start passed by the caller fixes the task (the model decides it); start_mode=auto gives the start
-     * back to the planner, which puts the task into the executor's nearest free time.
+     * back to the planner, which puts the task into the executor's nearest free time; start_mode=day keeps the day.
      */
     protected function applyStartMode(CmsTask $task, array $arguments): void
     {
@@ -111,10 +144,22 @@ class CmsTaskService extends AbstractCmsService
             return;
         }
         if ($mode === null) { return; }
-        if (!in_array($mode, ['auto', 'fixed'], true)) { throw new Exception('start_mode must be auto or fixed.'); }
-        if ($mode === 'auto') { $task->plan_start_at = null; return; }
+        if (!in_array($mode, ['auto', 'day', 'fixed'], true)) { throw new Exception('start_mode must be auto, day or fixed.'); }
+        if ($mode === 'auto') {
+            $task->plan_start_at = null;
+            if ($task->hasAttribute('plan_day')) { $task->plan_day = null; }
+            return;
+        }
+        if ($mode === 'day') {
+            $day = $arguments['plan_day'] ?? ($task->plan_day ?: ($task->plan_start_at ? \Yii::$app->formatter->asDate((int)$task->plan_start_at, 'php:Y-m-d') : null));
+            if (!$day) { throw new Exception('start_mode=day needs a date: plan_start_at=Y-m-d or plan_day.'); }
+            $task->plan_day = $day;
+            $task->is_fixed_start = 0;
+            return;
+        }
         if (!$task->plan_start_at) { throw new Exception('start_mode=fixed needs plan_start_at.'); }
         if ($task->hasAttribute('is_fixed_start')) { $task->is_fixed_start = 1; }
+        if ($task->hasAttribute('plan_day')) { $task->plan_day = null; }
     }
 
     protected function assertDealAllowed(CmsTask $task): void
@@ -138,7 +183,9 @@ class CmsTaskService extends AbstractCmsService
     {
         $source = array_merge($arguments, (array)($arguments['attributes'] ?? []));
         $supported = [
-            'start_mode'     => $task->hasAttribute('is_fixed_start') && method_exists($task, 'setFixedStart'),
+            'start_mode'     => $task->hasAttribute('is_fixed_start') && method_exists($task, 'setFixedStart')
+                && (($source['start_mode'] ?? null) !== 'day' || $task->hasAttribute('plan_day')),
+            'plan_day'       => $task->hasAttribute('plan_day'),
             'is_fixed_start' => $task->hasAttribute('is_fixed_start') && method_exists($task, 'setFixedStart'),
             'reminder'       => $task->hasAttribute('remind_at') && $task->canSetProperty('reminder'),
             'remind_at'      => $task->hasAttribute('remind_at'),
@@ -235,7 +282,11 @@ class CmsTaskService extends AbstractCmsService
     {
         $extra = [
             'status_text' => function (CmsTask $model) { return $model->statusAsText; },
-            'start_mode' => function (CmsTask $model) { return $model->hasAttribute('is_fixed_start') && !$model->is_fixed_start ? 'auto' : 'fixed'; },
+            'start_mode' => function (CmsTask $model) {
+                if ($model->hasAttribute('plan_day')) { return $model->getStartMode(); }
+                return $model->hasAttribute('is_fixed_start') && !$model->is_fixed_start ? 'auto' : 'fixed';
+            },
+            'plan_day' => function (CmsTask $model) { return $model->hasAttribute('plan_day') ? $model->plan_day : null; },
             'reminder' => function (CmsTask $model) { return $model->hasAttribute('remind_at') ? $model->reminder : ''; },
             'reminder_text' => function (CmsTask $model) { return $model->hasAttribute('remind_at') ? $model->reminderText : ''; },
             'behind_deadline' => function (CmsTask $model) { return method_exists($model, 'isBehindDeadline') && $model->isBehindDeadline(); },

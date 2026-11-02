@@ -81,13 +81,29 @@ try {
         check((int)$kept->plan_start_at === $at + 2 * 86400 && $kept->name === 'API '.$status && (int)$kept->is_fixed_start === 1, $status.': nothing is saved with the refusals');
     }
 
+    // «На день» (owner's decision 02.11.2026): a date without a time, start_mode=day, plan_day.
+    $dayDate = date('Y-m-d', $at + 3 * 86400);
+    $byDate = $api->taskCreate(['name' => 'API day', 'plan_start_at' => $dayDate, 'duration_minutes' => 30]);
+    check($byDate['start_mode'] === 'day' && $byDate['plan_day'] === $dayDate, 'A date without a time: the task is «на день» '.json_encode([$byDate['start_mode'], $byDate['plan_day']]));
+    check(Yii::$app->formatter->asDate((int)$byDate['plan_start_at'], 'php:Y-m-d') === $dayDate, 'The planner puts it into its day');
+    $toDay = $api->taskUpdate(['id' => $fixed['id'], 'start_mode' => 'day']);
+    check($toDay['start_mode'] === 'day' && $toDay['plan_day'] !== null, 'start_mode=day keeps the day of the current start');
+    $byPlanDay = $api->taskUpdate(['id' => $fixed['id'], 'plan_day' => $dayDate]);
+    check($byPlanDay['start_mode'] === 'day' && $byPlanDay['plan_day'] === $dayDate, 'plan_day moves a task «на день» to another day');
+    $refixed = $api->taskUpdate(['id' => $fixed['id'], 'plan_start_at' => $at + 4 * 86400]);
+    check($refixed['start_mode'] === 'fixed' && $refixed['plan_day'] === null, 'A start with a time fixes it again, the day goes');
+    rejects(function () use ($api, $fixed, $dayDate) { $api->taskUpdate(['id' => $fixed['id'], 'plan_start_at' => $dayDate, 'start_mode' => 'fixed']); }, 'A date without a time cannot be fixed');
+    rejects(function () use ($api, $fixed) { $api->taskUpdate(['id' => $fixed['id'], 'plan_day' => '2020-01-01']); }, 'A past day is refused');
+    $backAuto = $api->taskUpdate(['id' => $byDate['id'], 'start_mode' => 'auto']);
+    check($backAuto['start_mode'] === 'auto' && $backAuto['plan_day'] === null, 'start_mode=auto takes the day away');
+
     // An older skeeks/cms (or its migrations not applied): every new field is refused, none is silently skipped.
     $old = new class extends CmsTask {
-        public function hasAttribute($name) { return !in_array($name, ['is_fixed_start', 'remind_at', 'remind_author', 'deadline_at'], true) && parent::hasAttribute($name); }
+        public function hasAttribute($name) { return !in_array($name, ['is_fixed_start', 'remind_at', 'remind_author', 'deadline_at', 'plan_day'], true) && parent::hasAttribute($name); }
     };
     $reject = new ReflectionMethod($api, 'rejectUnsupported');
     $reject->setAccessible(true);
-    foreach (['start_mode' => 'auto', 'is_fixed_start' => true, 'reminder' => '0', 'remind_at' => $at, 'remind_author' => true, 'deadline_at' => $at] as $field => $value) {
+    foreach (['start_mode' => 'auto', 'is_fixed_start' => true, 'reminder' => '0', 'remind_at' => $at, 'remind_author' => true, 'deadline_at' => $at, 'plan_day' => '2030-01-01'] as $field => $value) {
         rejects(function () use ($reject, $api, $old, $field, $value) { $reject->invoke($api, $old, [$field => $value]); }, 'An older cms refuses '.$field);
         rejects(function () use ($reject, $api, $old, $field, $value) { $reject->invoke($api, $old, ['attributes' => [$field => $value]]); }, 'An older cms refuses attributes.'.$field);
     }
