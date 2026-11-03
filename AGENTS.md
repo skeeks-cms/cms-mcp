@@ -113,10 +113,12 @@ letters with an offer. Order of work:
 6. Sending through the API (only when the person explicitly orders a send of
    that letter): the draft is the user's own (`cms_comm_account_id`) or of
    an employee he manages by departments (an administrator: any employee);
-   find it with `cms_comm_draft_list` (`cms_user_id`). A draft of an
+   find it with `cms_comm_draft_list` (`cms_user_id`), hand it over with
+   `cms_comm_draft_transfer` (dry run without `confirm`). A draft of an
    employee is checked and sent as his: his mailbox, signature, clients and
    day limit; the letter records who actually sent it ("по поручению").
-   Anyone else's draft is refused with `not_own`. `cms_comm_draft_check` (no side effects, preview
+   Anyone else's draft is refused by every draft tool alike: `success=false`,
+   `reason` `not_own` (or `not_found`). `cms_comm_draft_check` (no side effects, preview
    with a dead button, `check_token`) → show the person → 
    `cms_comm_draft_send` with `check_token`, a new `idempotency_key` and
    `confirm=true`. On a timeout never resend blindly: read
