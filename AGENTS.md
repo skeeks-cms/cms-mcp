@@ -111,8 +111,12 @@ letters with an offer. Order of work:
 5. After the person agrees, repeat with `confirm=true` and report draft ids
    and owners or the campaign URL.
 6. Sending through the API (only when the person explicitly orders a send of
-   that letter): the draft must be in the user's own mailbox
-   (`cms_comm_account_id`); `cms_comm_draft_check` (no side effects, preview
+   that letter): the draft is the user's own (`cms_comm_account_id`) or of
+   an employee he manages by departments (an administrator: any employee);
+   find it with `cms_comm_draft_list` (`cms_user_id`). A draft of an
+   employee is checked and sent as his: his mailbox, signature, clients and
+   day limit; the letter records who actually sent it ("по поручению").
+   Anyone else's draft is refused with `not_own`. `cms_comm_draft_check` (no side effects, preview
    with a dead button, `check_token`) → show the person → 
    `cms_comm_draft_send` with `check_token`, a new `idempotency_key` and
    `confirm=true`. On a timeout never resend blindly: read
