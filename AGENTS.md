@@ -247,7 +247,12 @@ Retry with the returned confirmation flag only after explicit approval.
 - `CmsLeadService`: leads («Сделки») through the core `LeadTriage`; `cms_lead_create`
   requires a client (company or person: own, foreign by ref or new), phones and
   emails go only to a new card, never to the lead (П2г); triage without a contacts
-  choice moves the request contacts to the client card.
+  choice moves the request contacts to the client card. «Откуда узнали»:
+  `cms_lead_referral_list`, `referral_id` / `referral_code` in create and update
+  (an inactive item is refused, null clears), `referral_id` (id or `none`) in
+  the list, `referral` (`auto`, `note`) in deal data; guarded by
+  `CmsLead::referralReady()` for an older core. Test:
+  `CRM_LEAD_REFERRALS_TEST=local php tests/crm-lead-referrals.php`.
 - `CmsContractorService`: contractor details and relations.
 - `CmsUserService`: users and workers without exposing authentication secrets.
 - `CmsProjectService`: projects and their managers/users.

@@ -144,7 +144,8 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
                 'mine' => ['type' => 'boolean', 'description' => 'Только где вы ответственный.'],
                 'cms_company_id' => ['type' => 'integer'],
                 'cms_user_id' => ['type' => 'integer'],
-                'source_type' => ['type' => 'string', 'description' => 'Источник: manual, form, email, phone, api, mailing и др.'],
+                'source_type' => ['type' => 'string', 'description' => 'Источник (канал): manual, visit (визит в салон / офис), form, email, phone, api, mailing и др.'],
+                'referral_id' => ['type' => ['integer', 'string'], 'description' => '«Откуда узнали»: id из cms_lead_referral_list; none — сделки без него.'],
                 'date_field' => ['type' => 'string', 'enum' => ['created_at', 'processed_at', 'updated_at'], 'description' => 'К какой дате относится date_from/date_to; processed_at — дата закрытия.'],
                 'date_from' => ['type' => ['string', 'integer']],
                 'date_to' => ['type' => ['string', 'integer']],
@@ -158,6 +159,9 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
                 'events_limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'description' => 'Сколько последних событий ленты вернуть (10). Полная лента — cms_crm_history_get.'],
             ], ['id'])),
             $this->tool('cms_lead_stage_list', 'Воронки сделок (cms_lead) и их этапы: id для cms_lead_list, cms_lead_create и cms_lead_move.', 'cms.company.read', [$lead, 'stageList'], $this->object()),
+            $this->tool('cms_lead_referral_list', '«Откуда узнали»: список сайта (Яндекс Директ, Поиск, 2ГИС, Рекомендация…) с правилами автозаполнения. id и code — для referral_id / referral_code в cms_lead_create, cms_lead_update и фильтра cms_lead_list.', 'cms.company.read', [$lead, 'referralList'], $this->object([
+                'include_inactive' => ['type' => 'boolean', 'description' => 'Показать и выключенные пункты (они остаются у старых сделок).'],
+            ])),
             $this->tool('cms_lead_reject_reason_list', 'Причины отказа по сделкам (cms_lead) для cms_lead_close с result=rejected.', 'cms.company.read', [$lead, 'rejectReasonList'], $this->object()),
             $this->tool('cms_lead_create', $about.'Новая сделка с клиентом, как окно «Новая сделка». Клиент обязателен: свой по id; чужой — company_ref/client_ref («Работать с этим клиентом»); новый — client_line или поля; телефоны и email пишутся в компанию или человека, у сделки своих нет. '
                 .'Перед новым клиентом сервер сам проверяет повторы по всей базе: при совпадении ответ requires_confirmation с вариантами (чужие данные не раскрываются: «клиент уже есть, ответственный …»); при открытых сделках клиента — повторите с confirm=true, если потребность новая. '
@@ -168,17 +172,21 @@ class CrmToolProvider extends Component implements McpToolProviderInterface
                 'executor_id' => ['type' => 'integer', 'description' => 'Ответственный; по умолчанию — ответственный клиента или вы.'],
                 'pipeline_id' => ['type' => 'integer'],
                 'stage_id' => ['type' => 'integer'],
-                'source_type' => ['type' => 'string', 'description' => 'По умолчанию api.'],
+                'source_type' => ['type' => 'string', 'description' => 'По умолчанию api; visit — клиент пришёл в салон или офис.'],
+                'referral_id' => ['type' => 'integer', 'description' => '«Откуда узнали» (cms_lead_referral_list). Не передан — заполнится сам по правилам, если получится.'],
+                'referral_code' => ['type' => 'string', 'description' => 'Или код пункта «Откуда узнали», например yandex_direct.'],
                 'source_ref' => ['type' => 'string', 'description' => 'Ключ события у источника (id заявки, звонка, письма), не длиннее 190.'],
                 'source_name' => ['type' => 'string'],
                 'source_url' => ['type' => 'string'],
                 'idempotency_key' => ['type' => 'string', 'description' => 'Ключ повтора вызова, если у события нет своего source_ref; один и тот же ключ возвращает ту же сделку.'],
             ])),
-            $this->tool('cms_lead_update', $about.'Изменить название, описание, «Сумму» (amount) открытой сделки или сменить ответственного (executor_id, как «Сменить ответственного»: может ответственный, его руководитель, ответственный клиента, администратор). Этап — cms_lead_move, итог — cms_lead_close.', 'cms.company.write', [$lead, 'leadUpdate'], $this->object([
+            $this->tool('cms_lead_update', $about.'Изменить название, описание, «Сумму» (amount), «Откуда узнали» (referral_id) открытой сделки или сменить ответственного (executor_id, как «Сменить ответственного»: может ответственный, его руководитель, ответственный клиента, администратор). Этап — cms_lead_move, итог — cms_lead_close.', 'cms.company.write', [$lead, 'leadUpdate'], $this->object([
                 'id' => ['type' => 'integer'],
                 'name' => ['type' => 'string'],
                 'description' => ['type' => 'string'],
                 'amount' => ['type' => ['number', 'null'], 'description' => '«Сумма» — ожидаемая.'],
+                'referral_id' => ['type' => ['integer', 'null'], 'description' => '«Откуда узнали» (cms_lead_referral_list); null — очистить.'],
+                'referral_code' => ['type' => 'string', 'description' => 'Или код пункта «Откуда узнали».'],
                 'executor_id' => ['type' => 'integer'],
                 'comment' => ['type' => 'string', 'description' => 'Комментарий к смене ответственного.'],
             ], ['id'])),

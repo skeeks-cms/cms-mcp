@@ -81,6 +81,13 @@ class CmsLeadService extends AbstractCmsService
         if (!empty($a['mine'])) {
             $q->andWhere([$t.'.executor_id' => $this->actorId()]);
         }
+        // «Откуда узнали»: an item id, or `none` — deals without it.
+        if (isset($a['referral_id']) && $a['referral_id'] !== '' && $a['referral_id'] !== null) {
+            if (!$this->referralReady()) {
+                throw new \InvalidArgumentException('«Откуда узнали» ещё не включено на сайте (обновите cms и выполните миграции).');
+            }
+            $q->andWhere([$t.'.cms_lead_referral_id' => $a['referral_id'] === 'none' ? null : (int)$a['referral_id']]);
+        }
         $search = trim((string)($a['q'] ?? ''));
         if ($search !== '') {
             $q->andWhere(ctype_digit($search) ? ['or', [$t.'.id' => (int)$search], ['like', $t.'.name', $search]] : ['like', $t.'.name', $search]);
@@ -147,6 +154,66 @@ class CmsLeadService extends AbstractCmsService
 
         return ['items' => array_map(static fn($r) => ['id' => (int)$r->id, 'name' => (string)$r->name], CmsLeadRejectReason::forSite($this->siteId())),
             'note' => 'Если список пуст, причина отказа пишется текстом (reject_reason).'];
+    }
+
+    /**
+     * «Откуда узнали»: the items of the site with their rules (crm\LeadReferrals). Inactive ones are kept by old
+     * deals and the report but are not offered for new choices.
+     */
+    public function referralList(array $a): array
+    {
+        $this->requireCore();
+        if (!$this->referralReady()) {
+            return ['items' => [], 'note' => '«Откуда узнали» ещё не включено на сайте.'];
+        }
+        $items = \skeeks\cms\models\CmsLeadReferral::forSite($this->siteId());
+        if (empty($a['include_inactive'])) {
+            $items = array_filter($items, static fn($item) => (bool)$item->is_active);
+        }
+
+        return [
+            'items' => array_values(array_map(static fn($item) => [
+                'id' => (int)$item->id,
+                'name' => (string)$item->name,
+                'code' => $item->code !== null ? (string)$item->code : null,
+                'is_active' => (bool)$item->is_active,
+                'match_rules' => $item->match_rules !== null ? (string)$item->match_rules : null,
+            ], $items)),
+            'note' => 'referral_id для cms_lead_create, cms_lead_update и фильтра cms_lead_list. Пустое поле заполняется само по правилам (метки, переход, канал, номер звонка); выбранное человеком не перезаписывается.',
+        ];
+    }
+
+    /** «Откуда узнали» exists in the installed core and its migration ran. */
+    protected function referralReady(): bool
+    {
+        return method_exists(CmsLead::class, 'referralReady') && CmsLead::referralReady();
+    }
+
+    /**
+     * The item named by `referral_id` or `referral_code`: an id, null to clear, false — not given.
+     *
+     * @return int|null|false
+     */
+    protected function referralArgument(array $a, bool $forNew)
+    {
+        $hasId = array_key_exists('referral_id', $a);
+        $code = trim((string)($a['referral_code'] ?? ''));
+        if (!$hasId && $code === '') {
+            return false;
+        }
+        if (!$this->referralReady()) {
+            throw new \InvalidArgumentException('«Откуда узнали» ещё не включено на сайте (обновите cms и выполните миграции).');
+        }
+        if ($hasId && ($a['referral_id'] === null || $a['referral_id'] === '' || $a['referral_id'] === 0)) {
+            return null;
+        }
+        $query = \skeeks\cms\models\CmsLeadReferral::find()->andWhere(['cms_site_id' => $this->siteId()]);
+        $item = $hasId ? $query->andWhere(['id' => (int)$a['referral_id']])->one() : $query->andWhere(['code' => mb_strtolower($code)])->one();
+        if (!$item || ($forNew && !$item->is_active)) {
+            throw new \InvalidArgumentException('Пункт «Откуда узнали» не найден'.($item ? ' среди включённых' : '').': смотрите cms_lead_referral_list.');
+        }
+
+        return (int)$item->id;
     }
 
     /* ----------------------------------------------------------------- write */
@@ -221,6 +288,10 @@ class CmsLeadService extends AbstractCmsService
         if (isset($a['amount']) && CmsLead::amountReady()) {
             $lead->setAttribute('amount', $a['amount']);
         }
+        $referralId = $this->referralArgument($a, true);
+        if ($referralId !== false) {
+            $lead->setAttribute('cms_lead_referral_id', $referralId);
+        }
         if (!empty($a['pipeline_id'])) {
             $lead->cms_lead_pipeline_id = (int)$this->pipeline((int)$a['pipeline_id'])->id;
         }
@@ -261,7 +332,7 @@ class CmsLeadService extends AbstractCmsService
         $source = array_merge($a, (array)($a['attributes'] ?? []));
         $changed = [];
 
-        $fields = array_intersect_key($source, array_flip(['name', 'description', 'amount']));
+        $fields = array_intersect_key($source, array_flip(['name', 'description', 'amount', 'referral_id', 'referral_code']));
         if ($fields) {
             if (!$this->access()->canWorkLead($actorId, $lead)) {
                 throw new \InvalidArgumentException('Менять сделку может её ответственный или администратор, и только пока сделка открыта.');
@@ -274,6 +345,11 @@ class CmsLeadService extends AbstractCmsService
             }
             if (array_key_exists('description', $fields)) {
                 $lead->description = $this->text($fields['description']);
+            }
+            $referralId = $this->referralArgument($fields, true);
+            if ($referralId !== false) {
+                // A person (or the AI on behalf of one) chose it: the automatic note goes (CmsLead::beforeSave()).
+                $lead->setAttribute('cms_lead_referral_id', $referralId);
             }
             if (array_key_exists('amount', $fields)) {
                 if (!CmsLead::amountReady()) {
@@ -290,7 +366,7 @@ class CmsLeadService extends AbstractCmsService
             $changed[] = 'executor_id';
         }
         if (!$changed) {
-            throw new \InvalidArgumentException('Нечего менять: передайте name, description, amount или executor_id.');
+            throw new \InvalidArgumentException('Нечего менять: передайте name, description, amount, referral_id или executor_id.');
         }
         $lead->refresh();
 
@@ -605,6 +681,17 @@ class CmsLeadService extends AbstractCmsService
             'created_at' => (int)$m->created_at,
             'processed_at' => $m->processed_at ? (int)$m->processed_at : null,
         ];
+        if ($this->referralReady()) {
+            // «Откуда узнали»: auto — filled by the rules, `note` says by what.
+            $referral = $m->referral;
+            $data['referral'] = $referral ? [
+                'id' => (int)$referral->id,
+                'name' => (string)$referral->name,
+                'code' => $referral->code !== null ? (string)$referral->code : null,
+                'auto' => trim((string)$m->referral_note) !== '',
+                'note' => trim((string)$m->referral_note) !== '' ? (string)$m->referral_note : null,
+            ] : null;
+        }
         if (!$full) {
             return $data;
         }
