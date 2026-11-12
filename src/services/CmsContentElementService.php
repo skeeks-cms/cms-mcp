@@ -738,6 +738,7 @@ class CmsContentElementService extends AbstractCmsService
             'file_ids' => $element->fileIds,
         ]);
         if ($details) {
+            $data['treeIds'] = array_map('intval', $element->getElementTrees()->select('tree_id')->orderBy('tree_id')->column());
             $data['properties'] = $this->relatedValues($element);
             $data['property_definitions'] = array_map([$this, 'contentPropertyData'], $element->relatedProperties);
         }

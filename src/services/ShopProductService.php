@@ -263,7 +263,11 @@ class ShopProductService extends AbstractCmsService
         $data['base_price'] = $product->baseProductPrice ? $this->recordData($product->baseProductPrice) : null;
         $data['barcodes'] = array_map([$this, 'recordData'], $product->shopProductBarcodes);
         $data['collections'] = array_map([$this, 'recordData'], $product->collections);
-        if ($details && $element) { $data['properties'] = $this->relatedValues($element); $data['store_products'] = array_map([$this, 'recordData'], $product->shopStoreProducts); }
+        if ($details && $element) {
+            $data['element']['treeIds'] = array_map('intval', $element->getElementTrees()->select('tree_id')->orderBy('tree_id')->column());
+            $data['properties'] = $this->relatedValues($element);
+            $data['store_products'] = array_map([$this, 'recordData'], $product->shopStoreProducts);
+        }
         return $data;
     }
 
